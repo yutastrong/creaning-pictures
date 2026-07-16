@@ -32,6 +32,7 @@ export default function Home() {
   const [memo, setMemo] = useState("");
   const [toast, setToast] = useState("");
   const [cameraError, setCameraError] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
   const [selected, setSelected] = useState<(typeof photos)[number] | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -89,6 +90,30 @@ export default function Home() {
   function changeSite(value: string) { setSite(value); localStorage.setItem("field-site", value); }
 
   function capture() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setPendingPhoto(photos[0].image);
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = 1200;
+    canvas.height = 900;
+    const sourceRatio = video.videoWidth / video.videoHeight;
+    const targetRatio = 4 / 3;
+    let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+    if (sourceRatio > targetRatio) {
+      sw = video.videoHeight * targetRatio;
+      sx = (video.videoWidth - sw) / 2;
+    } else {
+      sh = video.videoWidth / targetRatio;
+      sy = (video.videoHeight - sh) / 2;
+    }
+    canvas.getContext("2d")?.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    setPendingPhoto(canvas.toDataURL("image/jpeg", 0.82));
+  }
+
+  function savePhoto() {
+    setPendingPhoto(null);
     setToast("保存中…");
     setTimeout(() => { setToast("✓ 保存しました"); setMemo(""); setTimeout(() => setToast(""), 2400); }, 700);
   }
@@ -148,7 +173,18 @@ export default function Home() {
       </main>
     </div>
     {selected && <PhotoModal photo={selected} onClose={() => setSelected(null)}/>} 
+    {pendingPhoto && <CaptureReview image={pendingPhoto} onSave={savePhoto} onRetake={() => setPendingPhoto(null)}/>} 
   </>;
+}
+
+function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>void, onRetake:()=>void }) {
+  return <div className="capture-review" role="dialog" aria-modal="true" aria-labelledby="review-title">
+    <div className="review-panel">
+      <header><span>撮影した写真</span><h2 id="review-title">この写真を保存しますか？</h2></header>
+      <img src={image} alt="撮影した写真の確認"/>
+      <div className="review-actions"><button className="retake-button" onClick={onRetake}>撮り直す</button><button className="save-button" onClick={onSave}>保存する</button></div>
+    </div>
+  </div>;
 }
 
 function PhotoCard({ photo, onClick }: { photo:(typeof photos)[number], onClick:()=>void }) {
