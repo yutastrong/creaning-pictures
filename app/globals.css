@@ -36,3 +36,12 @@
 .capture-review{position:fixed;z-index:50;inset:0;background:#07111eea;display:grid;place-items:center;padding:18px}.review-panel{width:min(480px,100%);background:white;border-radius:20px;padding:18px;box-shadow:0 30px 80px #0008}.review-panel header{text-align:center}.review-panel header span{font-size:11px;color:var(--blue);font-weight:800;letter-spacing:.12em}.review-panel h2{font-size:20px;margin:5px 0 14px}.review-panel img{display:block;width:100%;max-height:58svh;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#172033}.review-actions{display:grid;grid-template-columns:1fr 1.35fr;gap:10px;margin-top:14px}.review-actions button{height:52px;border-radius:11px;font-weight:800}.retake-button{border:1px solid var(--line);background:white;color:#38465c}.save-button{border:0;background:var(--blue);color:white;box-shadow:0 8px 20px #1467e940}
 
 @media(max-height:700px) and (max-width:760px){.mobile-header{height:44px}.preview{height:150px}.field-card,.memo-card{padding:5px}.field-card select{height:34px}.memo-card textarea{height:36px;min-height:36px}.capture-button{width:56px;height:56px;margin-top:5px}.review-panel img{max-height:48svh}}
+
+@media(max-width:760px){
+  .capture-view{height:calc(100% - 50px);display:flex;flex-direction:column;min-height:0}
+  .capture-fields{grid-template-columns:1fr;gap:5px}
+  .memo-card{grid-column:auto}
+  .capture-button{flex:0 0 auto;margin:auto auto 10px}
+}
+
+@media(max-height:700px) and (max-width:760px){.capture-view{height:calc(100% - 44px)}.capture-fields{gap:4px}.capture-button{margin:auto auto 6px}}

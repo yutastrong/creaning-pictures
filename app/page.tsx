@@ -128,11 +128,10 @@ export default function Home() {
     <div className="mobile-app">
       <main className="mobile-main">
         <header className="mobile-header"><span className="eyebrow">FIELD NOTE</span><h1>{mobileTab === "capture" ? "撮影" : "写真一覧"}</h1><button className="avatar" aria-label="プロフィール">山</button></header>
-        {mobileTab === "capture" ? <>
+        {mobileTab === "capture" ? <div className="capture-view">
           <div className="preview">
             <video ref={videoRef} autoPlay playsInline muted />
             {cameraError && <div className="camera-fallback"><img src={photos[0].image} alt="現場のプレビュー"/><div className="camera-message"><span>カメラを利用できません</span><button onClick={startCamera}>もう一度試す</button></div></div>}
-            <span className="live-pill">● LIVE</span>
           </div>
           <section className="capture-fields">
             <label className="field-card"><span>作業項目</span><select value={work} onChange={e => changeWork(e.target.value)}>{Object.keys(siteMap).map(x => <option key={x}>{x}</option>)}</select></label>
@@ -141,7 +140,7 @@ export default function Home() {
           </section>
           <button className="capture-button" onClick={capture} disabled={!work || !site} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
-        </> : <MobilePhotos onSelect={setSelected}/>} 
+        </div> : <MobilePhotos onSelect={setSelected}/>} 
       </main>
       <nav className="bottom-nav" aria-label="メインナビゲーション">
         <button className={mobileTab === "capture" ? "active" : ""} onClick={() => setMobileTab("capture")}><Icon>●</Icon>撮影</button>
