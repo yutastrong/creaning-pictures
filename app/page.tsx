@@ -32,6 +32,8 @@ function formatLocalDateTime(date: Date) {
 
 export default function Home() {
   const [mobileTab, setMobileTab] = useState<"capture" | "photos">("capture");
+  const [desktopSection, setDesktopSection] = useState<"photos" | "categories">("photos");
+  const [categoryData, setCategoryData] = useState<Record<string, string[]>>(siteMap);
   const [work, setWork] = useState("トイレ清掃");
   const [site, setSite] = useState("第二小学校");
   const [memo, setMemo] = useState("");
@@ -47,8 +49,12 @@ export default function Home() {
   useEffect(() => {
     const savedWork = localStorage.getItem("field-work");
     const savedSite = localStorage.getItem("field-site");
+    const savedMasterData = localStorage.getItem("field-master-data");
     if (savedWork && siteMap[savedWork]) setWork(savedWork);
     if (savedSite) setSite(savedSite);
+    if (savedMasterData) {
+      try { setCategoryData(JSON.parse(savedMasterData)); } catch { /* use initial master data */ }
+    }
     return stopCamera;
   }, []);
 
@@ -104,10 +110,23 @@ export default function Home() {
 
   function changeWork(value: string) {
     setWork(value); localStorage.setItem("field-work", value);
-    const nextSite = siteMap[value][0]; setSite(nextSite); localStorage.setItem("field-site", nextSite);
+    const nextSite = categoryData[value][0]; setSite(nextSite); localStorage.setItem("field-site", nextSite);
   }
 
   function changeSite(value: string) { setSite(value); localStorage.setItem("field-site", value); }
+
+  function updateMasterData(next: Record<string, string[]>) {
+    setCategoryData(next);
+    localStorage.setItem("field-master-data", JSON.stringify(next));
+    const categoryNames = Object.keys(next);
+    if (!next[work]) {
+      const nextWork = categoryNames[0] ?? "";
+      setWork(nextWork);
+      setSite(next[nextWork]?.[0] ?? "");
+    } else if (!next[work].includes(site)) {
+      setSite(next[work][0] ?? "");
+    }
+  }
 
   function capture() {
     const video = videoRef.current;
@@ -168,8 +187,8 @@ export default function Home() {
             {cameraError && <div className="camera-fallback"><img src={photos[0].image} alt="現場のプレビュー"/><div className="camera-message"><span>カメラを利用できません</span><button onClick={startCamera}>もう一度試す</button></div></div>}
           </div>
           <section className="capture-fields">
-            <label className="field-card"><span>作業項目</span><select value={work} onChange={e => changeWork(e.target.value)}>{Object.keys(siteMap).map(x => <option key={x}>{x}</option>)}</select></label>
-            <label className="field-card site-field"><span>現場選択</span><select value={site} onChange={e => changeSite(e.target.value)}>{siteMap[work].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label className="field-card"><span>作業項目</span><select value={work} onChange={e => changeWork(e.target.value)}>{Object.keys(categoryData).map(x => <option key={x}>{x}</option>)}</select></label>
+            <label className="field-card site-field"><span>現場選択</span><select value={site} onChange={e => changeSite(e.target.value)}>{(categoryData[work] ?? []).map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="memo-card"><span>メモ <small>任意</small></span><textarea maxLength={200} value={memo} onChange={e => setMemo(e.target.value)} placeholder="作業内容や気になる点を入力"/><b>{memo.length}/200</b></label>
           </section>
           <button className="capture-button" onClick={capture} disabled={!work || !site} aria-label="写真を撮影"><span>▣</span></button>
@@ -185,12 +204,12 @@ export default function Home() {
     <div className="desktop-app">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">▣</div><span>現場写真共有</span></div>
-        <nav><button className="active"><Icon>▧</Icon>写真一覧</button><button><Icon>☷</Icon>撮影項目</button><button><Icon>♙</Icon>メンバー</button></nav>
+        <nav><button className={desktopSection === "photos" ? "active" : ""} onClick={() => setDesktopSection("photos")}><Icon>▧</Icon>写真一覧</button><button className={desktopSection === "categories" ? "active" : ""} onClick={() => setDesktopSection("categories")}><Icon>☷</Icon>項目の追加</button><button><Icon>♙</Icon>メンバー</button></nav>
         <div className="profile"><div className="profile-avatar">山</div><div><b>山田 太郎</b><small>事務所スタッフ</small></div><span>⌄</span></div>
       </aside>
       <main className="desktop-main">
-        <header className="page-head"><div><span className="eyebrow">PHOTO LIBRARY</span><h1>写真一覧</h1></div><button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button></header>
-        <section className="workspace">
+        <header className="page-head"><div><span className="eyebrow">{desktopSection === "photos" ? "PHOTO LIBRARY" : "WORK SETTINGS"}</span><h1>{desktopSection === "photos" ? "写真一覧" : "作業項目・現場管理"}</h1></div>{desktopSection === "photos" && <button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button>}</header>
+        {desktopSection === "photos" ? <section className="workspace">
           <div className="filters">
             <label>作業項目<select value={filters.work} onChange={e => setFilters({...filters, work:e.target.value})}><option>すべて</option>{Object.keys(siteMap).map(x => <option key={x}>{x}</option>)}</select></label>
             <label>現場名<select value={filters.site} onChange={e => setFilters({...filters, site:e.target.value})}><option>すべて</option>{[...new Set(photos.map(p => p.site))].map(x => <option key={x}>{x}</option>)}</select></label>
@@ -202,12 +221,100 @@ export default function Home() {
           <div className="result-bar"><p><b>{filtered.length}</b> 件の写真</p><div><button className="view-active">▦</button><button>☷</button><select><option>撮影日時（新しい順）</option><option>撮影日時（古い順）</option></select></div></div>
           <div className="photo-grid">{filtered.map(p => <PhotoCard key={p.id} photo={p} onClick={() => setSelected(p)}/>)}</div>
           {!filtered.length && <div className="empty">条件に一致する写真はありません</div>}
-        </section>
+        </section> : <WorkCategoryManager data={categoryData} onChange={updateMasterData}/>} 
       </main>
     </div>
     {selected && <PhotoModal photo={selected} onClose={() => setSelected(null)}/>} 
     {pendingPhoto && <CaptureReview image={pendingPhoto} onSave={savePhoto} onRetake={() => setPendingPhoto(null)}/>} 
   </>;
+}
+
+function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>, onChange:(next:Record<string,string[]>)=>void }) {
+  const [selectedCategory, setSelectedCategory] = useState(Object.keys(data)[0] ?? "");
+  const [categoryName, setCategoryName] = useState(selectedCategory);
+  const [newCategory, setNewCategory] = useState("");
+  const [newSite, setNewSite] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const available = Object.keys(data);
+    const nextSelected = data[selectedCategory] ? selectedCategory : (available[0] ?? "");
+    if (nextSelected !== selectedCategory) setSelectedCategory(nextSelected);
+    setCategoryName(nextSelected);
+  }, [data, selectedCategory]);
+
+  function flash(text: string) {
+    setMessage(text);
+    setTimeout(() => setMessage(""), 1800);
+  }
+
+  function addCategory() {
+    const name = newCategory.trim();
+    if (!name || data[name]) return;
+    onChange({ ...data, [name]: ["それ以外"] });
+    setSelectedCategory(name);
+    setCategoryName(name);
+    setNewCategory("");
+    flash("作業項目を追加しました");
+  }
+
+  function saveCategoryName() {
+    const name = categoryName.trim();
+    if (!name || !selectedCategory || (name !== selectedCategory && data[name])) return;
+    const next = Object.fromEntries(Object.entries(data).map(([key, sites]) => [key === selectedCategory ? name : key, sites]));
+    onChange(next);
+    setSelectedCategory(name);
+    flash("作業項目名を保存しました");
+  }
+
+  function removeCategory() {
+    if (!selectedCategory || !window.confirm(`「${selectedCategory}」と、その現場を削除しますか？`)) return;
+    const next = Object.fromEntries(Object.entries(data).filter(([key]) => key !== selectedCategory));
+    onChange(next);
+    flash("作業項目を削除しました");
+  }
+
+  function updateSite(index: number, value: string) {
+    const sites = [...(data[selectedCategory] ?? [])];
+    sites[index] = value;
+    onChange({ ...data, [selectedCategory]: sites });
+  }
+
+  function addSite() {
+    const name = newSite.trim();
+    const current = data[selectedCategory] ?? [];
+    if (!name || !selectedCategory || current.includes(name)) return;
+    const regularSites = current.filter(site => site !== "それ以外");
+    const hasOther = current.includes("それ以外");
+    onChange({ ...data, [selectedCategory]: [...regularSites, name, ...(hasOther ? ["それ以外"] : [])] });
+    setNewSite("");
+    flash("現場を追加しました");
+  }
+
+  function removeSite(index: number) {
+    const sites = (data[selectedCategory] ?? []).filter((_, siteIndex) => siteIndex !== index);
+    onChange({ ...data, [selectedCategory]: sites });
+    flash("現場を削除しました");
+  }
+
+  return <section className="master-workspace">
+    <div className="master-intro"><div><b>作業項目と現場を編集</b><p>作業項目を選ぶと、その中に登録されている現場を編集できます。</p></div>{message && <span>{message}</span>}</div>
+    <div className="master-layout">
+      <aside className="category-panel">
+        <div className="panel-title"><div><small>親項目</small><h2>作業項目</h2></div><em>{Object.keys(data).length}件</em></div>
+        <div className="add-row"><input value={newCategory} onChange={e => setNewCategory(e.target.value)} onKeyDown={e => e.key === "Enter" && addCategory()} placeholder="新しい作業項目"/><button onClick={addCategory}>追加</button></div>
+        <div className="category-list">{Object.keys(data).map(name => <button key={name} className={selectedCategory === name ? "active" : ""} onClick={() => setSelectedCategory(name)}><span>{name}</span><small>{data[name].length}現場</small><b>›</b></button>)}</div>
+      </aside>
+      <div className="site-panel">
+        {selectedCategory ? <>
+          <div className="editor-head"><div><small>選択中の作業項目</small><div className="category-name-edit"><input value={categoryName} onChange={e => setCategoryName(e.target.value)}/><button onClick={saveCategoryName}>名前を保存</button></div></div><button className="danger-link" onClick={removeCategory}>作業項目を削除</button></div>
+          <div className="child-title"><div><small>子項目</small><h3>現場選択</h3><p>「{selectedCategory}」を選んだときに表示される現場です。</p></div><em>{(data[selectedCategory] ?? []).length}件</em></div>
+          <div className="add-site-row"><input value={newSite} onChange={e => setNewSite(e.target.value)} onKeyDown={e => e.key === "Enter" && addSite()} placeholder="新しい現場名を入力"/><button onClick={addSite}>＋ 現場を追加</button></div>
+          <div className="site-list">{(data[selectedCategory] ?? []).map((siteName,index) => <div className="site-edit-row" key={`${selectedCategory}-${index}`}><span className="drag-mark">⋮⋮</span><input value={siteName} onChange={e => updateSite(index,e.target.value)}/><span className={siteName === "それ以外" ? "other-badge" : "site-badge"}>{siteName === "それ以外" ? "共通" : "有効"}</span><button onClick={() => removeSite(index)} aria-label={`${siteName}を削除`}>削除</button></div>)}</div>
+        </> : <div className="master-empty">作業項目を追加してください</div>}
+      </div>
+    </div>
+  </section>;
 }
 
 function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>void, onRetake:()=>void }) {
