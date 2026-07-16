@@ -35,21 +35,48 @@ export default function Home() {
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
   const [selected, setSelected] = useState<(typeof photos)[number] | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const savedWork = localStorage.getItem("field-work");
     const savedSite = localStorage.getItem("field-site");
     if (savedWork && siteMap[savedWork]) setWork(savedWork);
     if (savedSite) setSite(savedSite);
-    startCamera();
-    return () => { const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach(t => t.stop()); };
+    return () => { streamRef.current?.getTracks().forEach(track => track.stop()); };
   }, []);
+
+  useEffect(() => {
+    if (mobileTab === "capture") startCamera();
+  }, [mobileTab]);
+
+  useEffect(() => {
+    const reconnectCamera = () => {
+      if (document.visibilityState === "visible" && mobileTab === "capture") startCamera();
+    };
+    document.addEventListener("visibilitychange", reconnectCamera);
+    return () => document.removeEventListener("visibilitychange", reconnectCamera);
+  }, [mobileTab]);
 
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) { setCameraError(true); return; }
     try {
+      const activeStream = streamRef.current;
+      if (activeStream?.getVideoTracks().some(track => track.readyState === "live")) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = activeStream;
+          await videoRef.current.play();
+        }
+        setCameraError(false);
+        return;
+      }
+      activeStream?.getTracks().forEach(track => track.stop());
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      streamRef.current = stream;
+      stream.getVideoTracks().forEach(track => { track.onended = () => setCameraError(true); });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
       setCameraError(false);
     } catch { setCameraError(true); }
   }
