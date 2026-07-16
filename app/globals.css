@@ -45,3 +45,14 @@
 }
 
 @media(max-height:700px) and (max-width:760px){.capture-view{height:calc(100% - 44px)}.capture-fields{gap:4px}.capture-button{margin:auto auto 6px}}
+
+@media(max-width:760px){
+  .preview{width:min(100%,36svh);height:auto;aspect-ratio:4/3;align-self:center}
+  .mobile-gallery{height:100%;overflow:auto;padding-bottom:12px}
+  .mobile-empty{grid-column:1/-1;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#788498;text-align:center}
+  .mobile-empty>span{font-size:34px;color:#aeb8c6}
+  .mobile-empty>b{font-size:14px;color:#4a576b}
+  .mobile-empty>small{font-size:11px}
+}
+
+@media(max-height:700px) and (max-width:760px){.preview{width:min(100%,32svh);height:auto}}

@@ -25,6 +25,11 @@ const siteMap: Record<string, string[]> = {
 
 function Icon({ children }: { children: React.ReactNode }) { return <span aria-hidden="true" className="icon">{children}</span>; }
 
+function formatLocalDateTime(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export default function Home() {
   const [mobileTab, setMobileTab] = useState<"capture" | "photos">("capture");
   const [work, setWork] = useState("トイレ清掃");
@@ -33,6 +38,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [cameraError, setCameraError] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<(typeof photos)[number][]>([]);
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
   const [selected, setSelected] = useState<(typeof photos)[number] | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -113,16 +119,30 @@ export default function Home() {
   }
 
   function savePhoto() {
+    if (!pendingPhoto) return;
+    const newPhoto = {
+      id: Date.now(),
+      site,
+      work,
+      member: "山田 太郎",
+      time: formatLocalDateTime(new Date()),
+      memo,
+      comments: 0,
+      image: pendingPhoto,
+    };
+    setCapturedPhotos(current => [newPhoto, ...current]);
     setPendingPhoto(null);
     setToast("保存中…");
     setTimeout(() => { setToast("✓ 保存しました"); setMemo(""); setTimeout(() => setToast(""), 2400); }, 700);
   }
 
-  const filtered = useMemo(() => photos.filter(p =>
+  const allPhotos = useMemo(() => [...capturedPhotos, ...photos], [capturedPhotos]);
+
+  const filtered = useMemo(() => allPhotos.filter(p =>
     (filters.work === "すべて" || p.work === filters.work) &&
     (filters.site === "すべて" || p.site === filters.site) &&
     (filters.member === "すべて" || p.member === filters.member)
-  ), [filters]);
+  ), [filters, allPhotos]);
 
   return <>
     <div className="mobile-app">
@@ -140,7 +160,7 @@ export default function Home() {
           </section>
           <button className="capture-button" onClick={capture} disabled={!work || !site} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
-        </div> : <MobilePhotos onSelect={setSelected}/>} 
+        </div> : <MobilePhotos photos={allPhotos} onSelect={setSelected}/>} 
       </main>
       <nav className="bottom-nav" aria-label="メインナビゲーション">
         <button className={mobileTab === "capture" ? "active" : ""} onClick={() => setMobileTab("capture")}><Icon>●</Icon>撮影</button>
@@ -190,8 +210,10 @@ function PhotoCard({ photo, onClick }: { photo:(typeof photos)[number], onClick:
   return <button className="photo-card" onClick={onClick}><img src={photo.image} alt={`${photo.site}の${photo.work}`}/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
 }
 
-function MobilePhotos({ onSelect }: { onSelect:(p:(typeof photos)[number])=>void }) {
-  return <section className="mobile-gallery"><div className="mobile-summary"><b>自分の写真</b><span>{photos.slice(0,5).length}件</span></div>{photos.slice(0,5).map(p => <PhotoCard key={p.id} photo={p} onClick={() => onSelect(p)}/>)}</section>;
+function MobilePhotos({ photos: photoItems, onSelect }: { photos:(typeof photos)[number][], onSelect:(p:(typeof photos)[number])=>void }) {
+  const today = formatLocalDateTime(new Date()).slice(0, 10);
+  const todayPhotos = photoItems.filter(photo => photo.time.slice(0, 10) === today);
+  return <section className="mobile-gallery"><div className="mobile-summary"><b>今日の写真</b><span>{todayPhotos.length}件</span></div>{todayPhotos.map(p => <PhotoCard key={p.id} photo={p} onClick={() => onSelect(p)}/>)}{todayPhotos.length === 0 && <div className="mobile-empty"><span>▧</span><b>今日の写真はまだありません</b><small>撮影して保存すると、ここに表示されます</small></div>}</section>;
 }
 
 function PhotoModal({ photo, onClose }: { photo:(typeof photos)[number], onClose:()=>void }) {
