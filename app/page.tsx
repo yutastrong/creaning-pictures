@@ -49,22 +49,30 @@ export default function Home() {
     const savedSite = localStorage.getItem("field-site");
     if (savedWork && siteMap[savedWork]) setWork(savedWork);
     if (savedSite) setSite(savedSite);
-    return () => { streamRef.current?.getTracks().forEach(track => track.stop()); };
+    return stopCamera;
   }, []);
 
   useEffect(() => {
-    if (mobileTab === "capture") startCamera();
+    const mobileQuery = window.matchMedia("(max-width: 760px)");
+    const handleViewportChange = () => {
+      if (mobileQuery.matches && mobileTab === "capture") startCamera();
+      else stopCamera();
+    };
+    handleViewportChange();
+    mobileQuery.addEventListener("change", handleViewportChange);
+    return () => mobileQuery.removeEventListener("change", handleViewportChange);
   }, [mobileTab]);
 
   useEffect(() => {
     const reconnectCamera = () => {
-      if (document.visibilityState === "visible" && mobileTab === "capture") startCamera();
+      if (document.visibilityState === "visible" && mobileTab === "capture" && window.matchMedia("(max-width: 760px)").matches) startCamera();
     };
     document.addEventListener("visibilitychange", reconnectCamera);
     return () => document.removeEventListener("visibilitychange", reconnectCamera);
   }, [mobileTab]);
 
   async function startCamera() {
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
     if (!navigator.mediaDevices?.getUserMedia) { setCameraError(true); return; }
     try {
       const activeStream = streamRef.current;
@@ -86,6 +94,12 @@ export default function Home() {
       }
       setCameraError(false);
     } catch { setCameraError(true); }
+  }
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
   }
 
   function changeWork(value: string) {
