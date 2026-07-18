@@ -58,3 +58,16 @@
 }
 
 @media(max-height:700px) and (max-width:760px){.preview{width:100%;height:auto}.mobile-gallery{height:calc(100% - 44px)}}
+
+@media(max-width:760px){
+  .modal-backdrop{padding:10px}
+  .modal{width:100%;max-height:calc(100svh - 20px);border-radius:15px}
+  .modal>img{height:auto;min-height:0;aspect-ratio:4/3;object-fit:cover}
+  .modal-info{padding:14px 18px 16px}
+  .modal h2{font-size:20px;margin:10px 0 12px}
+  .modal dl div{padding:8px 0}
+  .modal dt{font-size:10px;margin-bottom:3px}
+  .modal dd{font-size:13px}
+  .modal-close{position:absolute;right:10px;top:10px;width:38px;height:38px;font-size:25px}
+  .status{font-size:10px;padding:4px 7px}
+}
