@@ -46,6 +46,7 @@ function formatLocalDateTime(date: Date) {
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [profile, setProfile] = useState<{ display_name:string; role:"admin"|"staff" } | null>(null);
   const [mobileTab, setMobileTab] = useState<"capture" | "photos">("capture");
   const [desktopSection, setDesktopSection] = useState<"photos" | "categories">("photos");
@@ -69,8 +70,9 @@ export default function Home() {
       setUser(data.session?.user ?? null);
       setAuthLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       setAuthLoading(false);
     });
     return () => listener.subscription.unsubscribe();
@@ -317,6 +319,7 @@ export default function Home() {
 
   if (authLoading) return <div className="auth-loading">読み込み中…</div>;
   if (!user) return <LoginScreen />;
+  if (passwordRecovery) return <ChangePasswordScreen onDone={() => setPasswordRecovery(false)} />;
 
   const displayName = profile?.display_name ?? user.email?.split("@")[0] ?? "スタッフ";
   const avatarText = displayName.slice(0, 1);
@@ -388,6 +391,17 @@ function LoginScreen() {
     if (error) setMessage("メールアドレスまたはパスワードを確認してください");
   }
 
+  async function resetPassword() {
+    if (!email) {
+      setMessage("先にメールアドレスを入力してください");
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo:window.location.origin,
+    });
+    setMessage(error ? "再設定メールを送信できませんでした" : "パスワード再設定メールを送信しました");
+  }
+
   return <main className="login-page">
     <section className="login-panel">
       <div className="login-brand"><span>▣</span><div><small>FIELD NOTE</small><h1>現場写真共有</h1></div></div>
@@ -398,9 +412,36 @@ function LoginScreen() {
         {message && <span className="login-error" role="alert">{message}</span>}
         <button disabled={submitting}>{submitting ? "ログイン中…" : "ログイン"}</button>
       </form>
+      <button className="reset-link" onClick={resetPassword}>パスワードを忘れた方</button>
       <small className="login-help">アカウントがない場合は管理者へ連絡してください</small>
     </section>
   </main>;
+}
+
+function ChangePasswordScreen({ onDone }: { onDone:()=>void }) {
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (password.length < 8) {
+      setMessage("8文字以上で入力してください");
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) setMessage("パスワードを更新できませんでした");
+    else onDone();
+  }
+
+  return <main className="login-page"><section className="login-panel">
+    <div className="login-brand"><span>▣</span><div><small>FIELD NOTE</small><h1>新しいパスワード</h1></div></div>
+    <p>今後ログインに使用するパスワードを設定してください</p>
+    <form onSubmit={save}>
+      <label>新しいパスワード<input type="password" autoComplete="new-password" required minLength={8} value={password} onChange={event => setPassword(event.target.value)}/></label>
+      {message && <span className="login-error" role="alert">{message}</span>}
+      <button>パスワードを保存</button>
+    </form>
+  </section></main>;
 }
 
 function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>, onChange:(next:Record<string,string[]>)=>void }) {
