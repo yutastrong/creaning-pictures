@@ -1,8 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase/client";
 
-const photos = [
+type PhotoItem = {
+  id: string | number;
+  site: string;
+  work: string;
+  member: string;
+  time: string;
+  memo: string;
+  comments: number;
+  image: string;
+};
+
+const photos: PhotoItem[] = [
   { id: 1, site: "第二小学校", work: "トイレ清掃", member: "山田 太郎", time: "2024/06/15 10:32", memo: "男子トイレの作業完了", comments: 1, image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=900&q=85" },
   { id: 2, site: "第二小学校", work: "トイレ清掃", member: "山田 太郎", time: "2024/06/15 10:28", memo: "個室内を確認済み", comments: 0, image: "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?auto=format&fit=crop&w=900&q=85" },
   { id: 3, site: "第二小学校", work: "トイレ清掃", member: "山田 太郎", time: "2024/06/15 10:25", memo: "洗面台の清掃完了", comments: 0, image: "https://images.unsplash.com/photo-1620626011761-996317b8d101?auto=format&fit=crop&w=900&q=85" },
@@ -31,6 +44,9 @@ function formatLocalDateTime(date: Date) {
 }
 
 export default function Home() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<{ display_name:string; role:"admin"|"staff" } | null>(null);
   const [mobileTab, setMobileTab] = useState<"capture" | "photos">("capture");
   const [desktopSection, setDesktopSection] = useState<"photos" | "categories">("photos");
   const [categoryData, setCategoryData] = useState<Record<string, string[]>>(siteMap);
@@ -40,23 +56,89 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [cameraError, setCameraError] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
-  const [capturedPhotos, setCapturedPhotos] = useState<(typeof photos)[number][]>([]);
+  const [capturedPhotos, setCapturedPhotos] = useState<PhotoItem[]>([]);
+  const [masterIds, setMasterIds] = useState<Record<string, { workId:string; sites:Record<string,string> }>>({});
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
-  const [selected, setSelected] = useState<(typeof photos)[number] | null>(null);
+  const [selected, setSelected] = useState<PhotoItem | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const masterSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+      setCapturedPhotos([]);
+      return;
+    }
+    loadSupabaseData(user.id);
+  }, [user]);
 
   useEffect(() => {
     const savedWork = localStorage.getItem("field-work");
     const savedSite = localStorage.getItem("field-site");
-    const savedMasterData = localStorage.getItem("field-master-data");
     if (savedWork && siteMap[savedWork]) setWork(savedWork);
     if (savedSite) setSite(savedSite);
-    if (savedMasterData) {
-      try { setCategoryData(JSON.parse(savedMasterData)); } catch { /* use initial master data */ }
-    }
     return stopCamera;
   }, []);
+
+  async function loadSupabaseData(userId: string) {
+    const [{ data: profileRow }, { data: workRows }, { data: siteRows }, { data: photoRows }] = await Promise.all([
+      supabase.from("profiles").select("display_name, role").eq("id", userId).single(),
+      supabase.from("work_items").select("id, name, sort_order").order("sort_order"),
+      supabase.from("sites").select("id, work_item_id, name, sort_order").order("sort_order"),
+      supabase.from("photos").select("id, memo, image_path, captured_at, member_name, work_items(name), sites(name)").order("captured_at", { ascending:false }),
+    ]);
+    if (profileRow) setProfile(profileRow);
+    if (workRows && siteRows) {
+      const nextData: Record<string,string[]> = {};
+      const nextIds: Record<string,{workId:string;sites:Record<string,string>}> = {};
+      for (const workRow of workRows) {
+        const matchingSites = siteRows.filter(row => row.work_item_id === workRow.id);
+        nextData[workRow.name] = matchingSites.map(row => row.name);
+        nextIds[workRow.name] = {
+          workId: workRow.id,
+          sites: Object.fromEntries(matchingSites.map(row => [row.name, row.id])),
+        };
+      }
+      setCategoryData(nextData);
+      setMasterIds(nextIds);
+      const preferredWork = nextData[work] ? work : Object.keys(nextData)[0];
+      if (preferredWork) {
+        setWork(preferredWork);
+        if (!nextData[preferredWork].includes(site)) setSite(nextData[preferredWork][0] ?? "");
+      }
+    }
+    if (photoRows) {
+      const mapped = await Promise.all(photoRows.map(async row => {
+        const { data: signed } = await supabase.storage.from("field-photos").createSignedUrl(row.image_path, 3600);
+        const workRelation = row.work_items as unknown as { name:string } | null;
+        const siteRelation = row.sites as unknown as { name:string } | null;
+        return {
+          id: row.id,
+          site: siteRelation?.name ?? "",
+          work: workRelation?.name ?? "",
+          member: row.member_name,
+          time: formatLocalDateTime(new Date(row.captured_at)),
+          memo: row.memo,
+          comments: 0,
+          image: signed?.signedUrl ?? "",
+        } satisfies PhotoItem;
+      }));
+      setCapturedPhotos(mapped);
+    }
+  }
 
   useEffect(() => {
     const mobileQuery = window.matchMedia("(max-width: 760px)");
@@ -117,7 +199,6 @@ export default function Home() {
 
   function updateMasterData(next: Record<string, string[]>) {
     setCategoryData(next);
-    localStorage.setItem("field-master-data", JSON.stringify(next));
     const categoryNames = Object.keys(next);
     if (!next[work]) {
       const nextWork = categoryNames[0] ?? "";
@@ -126,6 +207,43 @@ export default function Home() {
     } else if (!next[work].includes(site)) {
       setSite(next[work][0] ?? "");
     }
+    if (masterSyncTimerRef.current) clearTimeout(masterSyncTimerRef.current);
+    masterSyncTimerRef.current = setTimeout(() => syncMasterData(next), 500);
+  }
+
+  async function syncMasterData(next: Record<string,string[]>) {
+    if (!user || profile?.role !== "admin") return;
+    const { data: currentWorks } = await supabase.from("work_items").select("id, name, sort_order").order("sort_order");
+    if (!currentWorks) return;
+    const currentNames = currentWorks.map(row => row.name);
+    const nextNames = Object.keys(next);
+    const removedWorks = currentWorks.filter(row => !nextNames.includes(row.name));
+    const addedWorkNames = nextNames.filter(name => !currentNames.includes(name));
+
+    if (removedWorks.length === 1 && addedWorkNames.length === 1 && currentNames.length === nextNames.length) {
+      await supabase.from("work_items").update({ name:addedWorkNames[0] }).eq("id", removedWorks[0].id);
+    } else {
+      for (const removed of removedWorks) await supabase.from("work_items").delete().eq("id", removed.id);
+      for (const name of addedWorkNames) await supabase.from("work_items").insert({ name, sort_order:(nextNames.indexOf(name) + 1) * 10 });
+    }
+
+    const { data: refreshedWorks } = await supabase.from("work_items").select("id, name");
+    if (!refreshedWorks) return;
+    for (const workRow of refreshedWorks) {
+      const desiredSites = next[workRow.name] ?? [];
+      const { data: currentSites } = await supabase.from("sites").select("id, name").eq("work_item_id", workRow.id).order("sort_order");
+      if (!currentSites) continue;
+      const currentSiteNames = currentSites.map(row => row.name);
+      const removedSites = currentSites.filter(row => !desiredSites.includes(row.name));
+      const addedSites = desiredSites.filter(name => !currentSiteNames.includes(name));
+      if (removedSites.length === 1 && addedSites.length === 1 && currentSiteNames.length === desiredSites.length) {
+        await supabase.from("sites").update({ name:addedSites[0] }).eq("id", removedSites[0].id);
+      } else {
+        for (const removed of removedSites) await supabase.from("sites").delete().eq("id", removed.id);
+        for (const name of addedSites) await supabase.from("sites").insert({ work_item_id:workRow.id, name, sort_order:(desiredSites.indexOf(name) + 1) * 10 });
+      }
+    }
+    await loadSupabaseData(user.id);
   }
 
   function capture() {
@@ -151,25 +269,45 @@ export default function Home() {
     setPendingPhoto(canvas.toDataURL("image/jpeg", 0.82));
   }
 
-  function savePhoto() {
-    if (!pendingPhoto) return;
-    const newPhoto = {
-      id: Date.now(),
-      site,
-      work,
-      member: "山田 太郎",
-      time: formatLocalDateTime(new Date()),
-      memo,
-      comments: 0,
-      image: pendingPhoto,
-    };
-    setCapturedPhotos(current => [newPhoto, ...current]);
-    setPendingPhoto(null);
+  async function savePhoto() {
+    if (!pendingPhoto || !user || !profile) return;
+    const workInfo = masterIds[work];
+    const siteId = workInfo?.sites[site];
+    if (!workInfo || !siteId) {
+      setToast("保存先を確認してください");
+      return;
+    }
     setToast("保存中…");
-    setTimeout(() => { setToast("✓ 保存しました"); setMemo(""); setTimeout(() => setToast(""), 2400); }, 700);
+    const imageBlob = await fetch(pendingPhoto).then(response => response.blob());
+    const imagePath = `${user.id}/${crypto.randomUUID()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from("field-photos")
+      .upload(imagePath, imageBlob, { contentType:"image/jpeg", upsert:false });
+    if (uploadError) {
+      setToast("写真を保存できませんでした");
+      return;
+    }
+    const { error: insertError } = await supabase.from("photos").insert({
+      work_item_id: workInfo.workId,
+      site_id: siteId,
+      member_id: user.id,
+      member_name: profile.display_name,
+      memo,
+      image_path: imagePath,
+    });
+    if (insertError) {
+      await supabase.storage.from("field-photos").remove([imagePath]);
+      setToast("撮影情報を保存できませんでした");
+      return;
+    }
+    setPendingPhoto(null);
+    setMemo("");
+    await loadSupabaseData(user.id);
+    setToast("✓ 保存しました");
+    setTimeout(() => setToast(""), 2400);
   }
 
-  const allPhotos = useMemo(() => [...capturedPhotos, ...photos], [capturedPhotos]);
+  const allPhotos = capturedPhotos;
 
   const filtered = useMemo(() => allPhotos.filter(p =>
     (filters.work === "すべて" || p.work === filters.work) &&
@@ -177,10 +315,16 @@ export default function Home() {
     (filters.member === "すべて" || p.member === filters.member)
   ), [filters, allPhotos]);
 
+  if (authLoading) return <div className="auth-loading">読み込み中…</div>;
+  if (!user) return <LoginScreen />;
+
+  const displayName = profile?.display_name ?? user.email?.split("@")[0] ?? "スタッフ";
+  const avatarText = displayName.slice(0, 1);
+
   return <>
     <div className="mobile-app">
       <main className="mobile-main">
-        <header className="mobile-header"><span className="eyebrow">FIELD NOTE</span><h1>{mobileTab === "capture" ? "撮影" : "写真一覧"}</h1><button className="avatar" aria-label="プロフィール">山</button></header>
+        <header className="mobile-header"><span className="eyebrow">FIELD NOTE</span><h1>{mobileTab === "capture" ? "撮影" : "写真一覧"}</h1><button className="avatar" aria-label="ログアウト" onClick={() => supabase.auth.signOut()}>{avatarText}</button></header>
         {mobileTab === "capture" ? <div className="capture-view">
           <div className="preview">
             <video ref={videoRef} autoPlay playsInline muted />
@@ -205,28 +349,58 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">▣</div><span>現場写真共有</span></div>
         <nav><button className={desktopSection === "photos" ? "active" : ""} onClick={() => setDesktopSection("photos")}><Icon>▧</Icon>写真一覧</button><button className={desktopSection === "categories" ? "active" : ""} onClick={() => setDesktopSection("categories")}><Icon>☷</Icon>項目の追加</button><button><Icon>♙</Icon>メンバー</button></nav>
-        <div className="profile"><div className="profile-avatar">山</div><div><b>山田 太郎</b><small>事務所スタッフ</small></div><span>⌄</span></div>
+        <button className="profile" onClick={() => supabase.auth.signOut()}><div className="profile-avatar">{avatarText}</div><div><b>{displayName}</b><small>{profile?.role === "admin" ? "管理者" : "スタッフ"}・クリックでログアウト</small></div><span>⌄</span></button>
       </aside>
       <main className="desktop-main">
         <header className="page-head"><div><span className="eyebrow">{desktopSection === "photos" ? "PHOTO LIBRARY" : "WORK SETTINGS"}</span><h1>{desktopSection === "photos" ? "写真一覧" : "作業項目・現場管理"}</h1></div>{desktopSection === "photos" && <button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button>}</header>
         {desktopSection === "photos" ? <section className="workspace">
           <div className="filters">
-            <label>作業項目<select value={filters.work} onChange={e => setFilters({...filters, work:e.target.value})}><option>すべて</option>{Object.keys(siteMap).map(x => <option key={x}>{x}</option>)}</select></label>
-            <label>現場名<select value={filters.site} onChange={e => setFilters({...filters, site:e.target.value})}><option>すべて</option>{[...new Set(photos.map(p => p.site))].map(x => <option key={x}>{x}</option>)}</select></label>
-            <label>メンバー<select value={filters.member} onChange={e => setFilters({...filters, member:e.target.value})}><option>すべて</option>{[...new Set(photos.map(p => p.member))].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label>作業項目<select value={filters.work} onChange={e => setFilters({...filters, work:e.target.value})}><option>すべて</option>{Object.keys(categoryData).map(x => <option key={x}>{x}</option>)}</select></label>
+            <label>現場名<select value={filters.site} onChange={e => setFilters({...filters, site:e.target.value})}><option>すべて</option>{[...new Set(allPhotos.map(p => p.site))].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label>メンバー<select value={filters.member} onChange={e => setFilters({...filters, member:e.target.value})}><option>すべて</option>{[...new Set(allPhotos.map(p => p.member))].map(x => <option key={x}>{x}</option>)}</select></label>
             <label>期間<div className="date-range">2024/06/01 〜 2024/06/15 <span>▦</span></div></label>
             <button className="clear" onClick={() => setFilters({work:"すべて",site:"すべて",member:"すべて"})}>クリア</button>
           </div>
-          <div className="sites"><span>現場一覧</span><div><button className={filters.site === "すべて" ? "active" : ""} onClick={() => setFilters({...filters,site:"すべて"})}>すべて</button>{[...new Set(photos.map(p => p.site))].map(x => <button key={x} className={filters.site === x ? "active" : ""} onClick={() => setFilters({...filters,site:x})}>{x}</button>)}</div></div>
+          <div className="sites"><span>現場一覧</span><div><button className={filters.site === "すべて" ? "active" : ""} onClick={() => setFilters({...filters,site:"すべて"})}>すべて</button>{[...new Set(allPhotos.map(p => p.site))].map(x => <button key={x} className={filters.site === x ? "active" : ""} onClick={() => setFilters({...filters,site:x})}>{x}</button>)}</div></div>
           <div className="result-bar"><p><b>{filtered.length}</b> 件の写真</p><div><button className="view-active">▦</button><button>☷</button><select><option>撮影日時（新しい順）</option><option>撮影日時（古い順）</option></select></div></div>
           <div className="photo-grid">{filtered.map(p => <PhotoCard key={p.id} photo={p} onClick={() => setSelected(p)}/>)}</div>
           {!filtered.length && <div className="empty">条件に一致する写真はありません</div>}
-        </section> : <WorkCategoryManager data={categoryData} onChange={updateMasterData}/>} 
+        </section> : profile?.role === "admin" ? <WorkCategoryManager data={categoryData} onChange={updateMasterData}/> : <div className="workspace empty">作業項目と現場の編集は管理者のみ利用できます</div>} 
       </main>
     </div>
     {selected && <PhotoModal photo={selected} onClose={() => setSelected(null)}/>} 
     {pendingPhoto && <CaptureReview image={pendingPhoto} onSave={savePhoto} onRetake={() => setPendingPhoto(null)}/>} 
   </>;
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function login(event: React.FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setMessage("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setSubmitting(false);
+    if (error) setMessage("メールアドレスまたはパスワードを確認してください");
+  }
+
+  return <main className="login-page">
+    <section className="login-panel">
+      <div className="login-brand"><span>▣</span><div><small>FIELD NOTE</small><h1>現場写真共有</h1></div></div>
+      <p>スタッフアカウントでログインしてください</p>
+      <form onSubmit={login}>
+        <label>メールアドレス<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com"/></label>
+        <label>パスワード<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} placeholder="パスワード"/></label>
+        {message && <span className="login-error" role="alert">{message}</span>}
+        <button disabled={submitting}>{submitting ? "ログイン中…" : "ログイン"}</button>
+      </form>
+      <small className="login-help">アカウントがない場合は管理者へ連絡してください</small>
+    </section>
+  </main>;
 }
 
 function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>, onChange:(next:Record<string,string[]>)=>void }) {
@@ -327,16 +501,16 @@ function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>v
   </div>;
 }
 
-function PhotoCard({ photo, onClick }: { photo:(typeof photos)[number], onClick:()=>void }) {
+function PhotoCard({ photo, onClick }: { photo:PhotoItem, onClick:()=>void }) {
   return <button className="photo-card" onClick={onClick}><img src={photo.image} alt={`${photo.site}の${photo.work}`}/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
 }
 
-function MobilePhotos({ photos: photoItems, onSelect }: { photos:(typeof photos)[number][], onSelect:(p:(typeof photos)[number])=>void }) {
+function MobilePhotos({ photos: photoItems, onSelect }: { photos:PhotoItem[], onSelect:(p:PhotoItem)=>void }) {
   const today = formatLocalDateTime(new Date()).slice(0, 10);
   const todayPhotos = photoItems.filter(photo => photo.time.slice(0, 10) === today);
   return <section className="mobile-gallery"><div className="mobile-summary"><b>今日の写真</b><span>{todayPhotos.length}件</span></div>{todayPhotos.map(p => <PhotoCard key={p.id} photo={p} onClick={() => onSelect(p)}/>)}{todayPhotos.length === 0 && <div className="mobile-empty"><span>▧</span><b>今日の写真はまだありません</b><small>撮影して保存すると、ここに表示されます</small></div>}</section>;
 }
 
-function PhotoModal({ photo, onClose }: { photo:(typeof photos)[number], onClose:()=>void }) {
+function PhotoModal({ photo, onClose }: { photo:PhotoItem, onClose:()=>void }) {
   return <div className="modal-backdrop" onMouseDown={onClose}><article className="modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><img src={photo.image} alt={`${photo.site}の写真`}/><div className="modal-info"><span className="status">保存済み</span><h2>{photo.site}</h2><dl><div><dt>作業項目</dt><dd>{photo.work}</dd></div><div><dt>撮影者</dt><dd>{photo.member}</dd></div><div><dt>撮影日時</dt><dd>{photo.time}</dd></div><div><dt>メモ</dt><dd>{photo.memo || "なし"}</dd></div></dl></div></article></div>;
 }

@@ -71,3 +71,8 @@
   .modal-close{position:absolute;right:10px;top:10px;width:38px;height:38px;font-size:25px}
   .status{font-size:10px;padding:4px 7px}
 }
+
+.auth-loading{min-height:100svh;display:grid;place-items:center;color:#647187}
+.login-page{min-height:100svh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#eaf3ff,#f7f9fc 42%,#eef2f7)}
+.login-panel{width:min(420px,100%);background:white;border:1px solid #dfe6ef;border-radius:22px;padding:32px;box-shadow:0 24px 70px #18365f1c}
+.login-brand{display:flex;align-items:center;gap:12px}.login-brand>span{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(145deg,#2585f5,#075bd4);color:white;font-size:22px}.login-brand small{color:var(--blue);font-weight:800;letter-spacing:.15em}.login-brand h1{font-size:22px;margin:2px 0 0}.login-panel>p{color:#647187;font-size:13px;margin:22px 0}.login-panel form{display:grid;gap:15px}.login-panel label{display:grid;gap:7px;font-size:12px;font-weight:700;color:#45536a}.login-panel input{height:48px;border:1px solid #d7dee8;border-radius:10px;padding:0 13px;font-size:15px}.login-panel form>button{height:50px;border:0;border-radius:11px;background:var(--blue);color:white;font-weight:800}.login-panel form>button:disabled{opacity:.65}.login-error{font-size:12px;color:#c43d3d;background:#fff0f0;border-radius:8px;padding:9px 10px}.login-help{display:block;margin-top:18px;color:#7b8798;text-align:center}.profile{width:100%;border:0;background:transparent;color:white;text-align:left}
