@@ -553,5 +553,32 @@ function MobilePhotos({ photos: photoItems, onSelect }: { photos:PhotoItem[], on
 }
 
 function PhotoModal({ photo, onClose }: { photo:PhotoItem, onClose:()=>void }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><article className="modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><img src={photo.image} alt={`${photo.site}の写真`}/><div className="modal-info"><span className="status">保存済み</span><h2>{photo.site}</h2><dl><div><dt>作業項目</dt><dd>{photo.work}</dd></div><div><dt>撮影者</dt><dd>{photo.member}</dd></div><div><dt>撮影日時</dt><dd>{photo.time}</dd></div><div><dt>メモ</dt><dd>{photo.memo || "なし"}</dd></div></dl></div></article></div>;
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+
+  async function downloadPhoto() {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const response = await fetch(photo.image);
+      if (!response.ok) throw new Error("download failed");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeSite = photo.site.replace(/[\\/:*?"<>|]/g, "_");
+      const safeTime = photo.time.replace(/[^\d]/g, "").slice(0, 12);
+      link.href = objectUrl;
+      link.download = `${safeSite}_${safeTime || photo.id}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setDownloadError("ダウンロードできませんでした。画面を更新して、もう一度お試しください。");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><article className="modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><img src={photo.image} alt={`${photo.site}の写真`}/><div className="modal-info"><span className="status">保存済み</span><h2>{photo.site}</h2><dl><div><dt>作業項目</dt><dd>{photo.work}</dd></div><div><dt>撮影者</dt><dd>{photo.member}</dd></div><div><dt>撮影日時</dt><dd>{photo.time}</dd></div><div><dt>メモ</dt><dd>{photo.memo || "なし"}</dd></div></dl><button className="download desktop-download" onClick={downloadPhoto} disabled={downloading}>{downloading ? "ダウンロード中…" : "写真をダウンロード"}</button>{downloadError && <p className="download-error" role="alert">{downloadError}</p>}</div></article></div>;
 }
