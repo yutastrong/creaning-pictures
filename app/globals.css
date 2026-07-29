@@ -28,6 +28,9 @@
   .memo-card textarea{min-height:42px;height:42px;padding:8px 46px 8px 9px;font-size:16px}
   .memo-card b{position:absolute;right:15px;bottom:14px}
   .capture-button{position:relative;left:auto;bottom:auto;z-index:auto;width:64px;height:64px;margin:7px auto 0;border-width:5px;font-size:23px;transform:none}
+  .capture-button:disabled{cursor:wait;opacity:.55}
+  .sync-status{align-self:center;margin:6px auto 0;border-radius:20px;background:#e7f8f1;color:#087d56;padding:5px 10px;font-size:10px;font-weight:800}
+  .sync-status.waiting{background:#fff4dc;color:#9b6500}
   .capture-button:active{transform:scale(.96)}
   .bottom-nav{height:62px}
   .bottom-nav .icon{font-size:18px}
