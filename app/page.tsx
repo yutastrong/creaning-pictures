@@ -78,11 +78,14 @@ export default function Home() {
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<PhotoItem["id"]>>(new Set());
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const [bulkDownloadError, setBulkDownloadError] = useState("");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountPasswordOpen, setAccountPasswordOpen] = useState(false);
   const [queueStatus, setQueueStatus] = useState({ pending:0, sending:0 });
   const [syncNotice, setSyncNotice] = useState("");
   const [savingLocally, setSavingLocally] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const masterSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueSyncingRef = useRef(false);
 
@@ -203,6 +206,22 @@ export default function Home() {
       window.clearInterval(timer);
     };
   }, [user, profile]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeAccountMenu = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeAccountMenu);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeAccountMenu);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [accountMenuOpen]);
 
   async function startCamera() {
     if (!window.matchMedia("(max-width: 760px)").matches) return;
@@ -540,7 +559,10 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">▣</div><span>現場写真共有</span></div>
         <nav><button className={desktopSection === "photos" ? "active" : ""} onClick={() => setDesktopSection("photos")}><Icon>▧</Icon>写真一覧</button><button className={desktopSection === "categories" ? "active" : ""} onClick={() => setDesktopSection("categories")}><Icon>☷</Icon>項目の追加</button><button className={desktopSection === "members" ? "active" : ""} onClick={() => setDesktopSection("members")}><Icon>♙</Icon>メンバー</button></nav>
-        <button className="profile" onClick={() => supabase.auth.signOut()}><div className="profile-avatar">{avatarText}</div><div><b>{displayName}</b><small>{profile?.role === "admin" ? "管理者" : "スタッフ"}・クリックでログアウト</small></div><span>⌄</span></button>
+        <div className="account-menu-wrap" ref={accountMenuRef}>
+          {accountMenuOpen && <div className="account-popover"><div className="account-popover-head"><div className="profile-avatar">{avatarText}</div><div><b>{displayName}</b><small>{user.email}</small></div><span>管理者</span></div><div className="account-popover-actions"><button onClick={() => { setAccountMenuOpen(false); setAccountPasswordOpen(true); }}><span>⌘</span>パスワードを変更</button><button className="logout-action" onClick={() => supabase.auth.signOut()}><span>↪</span>ログアウトする</button></div></div>}
+          <button className={`profile ${accountMenuOpen ? "open" : ""}`} onClick={() => setAccountMenuOpen(open => !open)} aria-expanded={accountMenuOpen} aria-haspopup="menu"><div className="profile-avatar">{avatarText}</div><div><b>{displayName}</b><small>管理者・アカウントメニュー</small></div><span>{accountMenuOpen ? "⌃" : "⌄"}</span></button>
+        </div>
       </aside>
       <main className="desktop-main">
         <header className="page-head"><div><span className="eyebrow">{desktopPage.eyebrow}</span><h1>{desktopPage.title}</h1></div>{desktopSection === "photos" && <button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button>}</header>
@@ -561,7 +583,39 @@ export default function Home() {
     </div> : profile && <div className="desktop-restricted"><div className="restricted-panel"><div className="restricted-icon">▣</div><span>STAFF MOBILE APP</span><h1>PC版は管理者専用です</h1><p>撮影と写真確認はスマートフォンからご利用ください。</p><button onClick={() => supabase.auth.signOut()}>ログアウト</button></div></div>}
     {selected && <PhotoModal photo={selected} onClose={() => setSelected(null)}/>} 
     {pendingPhoto && <CaptureReview image={pendingPhoto} onSave={savePhoto} onRetake={() => setPendingPhoto(null)}/>} 
+    {accountPasswordOpen && <AccountPasswordModal onClose={() => setAccountPasswordOpen(false)}/>}
   </>;
+}
+
+function AccountPasswordModal({ onClose }: { onClose:()=>void }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (password.length < 8) {
+      setMessage("パスワードは8文字以上で入力してください");
+      return;
+    }
+    if (password !== confirmation) {
+      setMessage("確認用パスワードが一致しません");
+      return;
+    }
+    setSubmitting(true);
+    setMessage("");
+    const { error } = await supabase.auth.updateUser({ password });
+    setSubmitting(false);
+    if (error) {
+      setMessage("パスワードを変更できませんでした。もう一度お試しください。");
+      return;
+    }
+    setMessage("✓ パスワードを変更しました");
+    window.setTimeout(onClose, 1200);
+  }
+
+  return <div className="account-password-backdrop" onMouseDown={() => !submitting && onClose()}><form className="account-password-dialog" onSubmit={changePassword} onMouseDown={event => event.stopPropagation()}><div className="account-password-head"><div><small>ACCOUNT SECURITY</small><h2>パスワードを変更</h2></div><button type="button" onClick={onClose}>×</button></div><p>次回のログインから新しいパスワードを使用してください。</p><label>新しいパスワード<input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={event => setPassword(event.target.value)} placeholder="8文字以上"/></label><label>新しいパスワード（確認）<input type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={event => setConfirmation(event.target.value)} placeholder="もう一度入力"/></label>{message && <div className={message.startsWith("✓") ? "account-password-success" : "account-password-error"} role="status">{message}</div>}<div className="account-password-actions"><button type="button" onClick={onClose}>キャンセル</button><button type="submit" disabled={submitting}>{submitting ? "変更中…" : "パスワードを変更"}</button></div></form></div>;
 }
 
 function LoginScreen() {
