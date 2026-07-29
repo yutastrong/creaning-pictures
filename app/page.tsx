@@ -56,6 +56,16 @@ function formatLocalDateTime(date: Date) {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function withTimeout<T>(promise: PromiseLike<T>, milliseconds=20000) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("送信がタイムアウトしました")), milliseconds);
+    Promise.resolve(promise).then(
+      value => { window.clearTimeout(timer); resolve(value); },
+      error => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -197,12 +207,21 @@ export default function Home() {
   useEffect(() => {
     if (!user || !profile) return;
     const sync = () => void syncQueuedPhotos();
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
     void refreshQueueStatus(user.id);
     sync();
     window.addEventListener("online", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("pageshow", sync);
+    document.addEventListener("visibilitychange", syncWhenVisible);
     const timer = window.setInterval(sync, 15000);
     return () => {
       window.removeEventListener("online", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("pageshow", sync);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
       window.clearInterval(timer);
     };
   }, [user, profile]);
@@ -355,9 +374,44 @@ export default function Home() {
     }
   }
 
+  async function uploadQueuedImage(photo: QueuedPhoto) {
+    const { data:{ session } } = await supabase.auth.getSession();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!session || !supabaseUrl || !publicKey) throw new Error("ログイン情報を確認できません");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 20000);
+    const encodedPath = photo.imagePath.split("/").map(encodeURIComponent).join("/");
+    try {
+      const response = await fetch(`${supabaseUrl}/storage/v1/object/field-photos/${encodedPath}`, {
+        method:"POST",
+        headers:{
+          Authorization:`Bearer ${session.access_token}`,
+          apikey:publicKey,
+          "Content-Type":"image/jpeg",
+          "x-upsert":"true",
+        },
+        body:photo.imageBlob,
+        signal:controller.signal,
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(body || `画像送信エラー (${response.status})`);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("画像送信がタイムアウトしました");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
   async function syncQueuedPhotos() {
     if (!user || queueSyncingRef.current || !navigator.onLine) return;
     queueSyncingRef.current = true;
+    setSyncNotice("");
     let savedCount = 0;
     try {
       const queued = await getQueuedPhotos(user.id);
@@ -365,45 +419,39 @@ export default function Home() {
         if (!navigator.onLine) break;
         await saveQueuedPhoto({ ...photo, status:"sending", lastError:undefined });
         await refreshQueueStatus(user.id);
-
-        // 前回の送信が途中で止まっていても、同じ写真を安全に再送できるようにする。
-        await supabase.storage.from("field-photos").remove([photo.imagePath]);
-        const { error: uploadError } = await supabase.storage
-          .from("field-photos")
-          .upload(photo.imagePath, photo.imageBlob, { contentType:"image/jpeg", upsert:false });
-        if (uploadError) {
-          await saveQueuedPhoto({ ...photo, status:"pending", lastError:uploadError.message });
+        try {
+          await uploadQueuedImage(photo);
+          const { error: insertError } = await withTimeout(supabase.from("photos").insert({
+            id: photo.id,
+            work_item_id: photo.workItemId,
+            site_id: photo.siteId,
+            member_id: photo.userId,
+            member_name: photo.memberName,
+            memo: photo.memo,
+            image_path: photo.imagePath,
+            captured_at: photo.capturedAt,
+          }));
+          if (insertError) {
+            const { data: existingPhoto } = await withTimeout(supabase.from("photos").select("id").eq("id", photo.id).maybeSingle());
+            if (!existingPhoto) throw insertError;
+          }
+          await removeQueuedPhoto(photo.id);
+          savedCount += 1;
+          await refreshQueueStatus(user.id);
+        } catch (sendError) {
+          const reason = sendError instanceof Error ? sendError.message : "通信エラー";
+          await saveQueuedPhoto({ ...photo, status:"pending", lastError:reason });
+          setSyncNotice("送信できませんでした。通信回復後に自動再送します");
           break;
         }
-
-        const { error: insertError } = await supabase.from("photos").insert({
-          id: photo.id,
-          work_item_id: photo.workItemId,
-          site_id: photo.siteId,
-          member_id: photo.userId,
-          member_name: photo.memberName,
-          memo: photo.memo,
-          image_path: photo.imagePath,
-          captured_at: photo.capturedAt,
-        });
-        if (insertError) {
-          const { data: existingPhoto } = await supabase.from("photos").select("id").eq("id", photo.id).maybeSingle();
-          if (!existingPhoto) {
-            await saveQueuedPhoto({ ...photo, status:"pending", lastError:insertError.message });
-            break;
-          }
-        }
-        await removeQueuedPhoto(photo.id);
-        savedCount += 1;
-        await refreshQueueStatus(user.id);
       }
       if (savedCount > 0) {
         setSyncNotice(`✓ ${savedCount}件を保存しました`);
         window.setTimeout(() => setSyncNotice(""), 3000);
-        await loadSupabaseData(user.id);
+        void loadSupabaseData(user.id);
       }
     } catch {
-      // 写真は端末内に残し、次回の自動同期で再送する。
+      setSyncNotice("未送信写真を確認できませんでした");
     } finally {
       queueSyncingRef.current = false;
       await refreshQueueStatus(user.id);
@@ -544,7 +592,7 @@ export default function Home() {
             <label className="field-card site-field"><span>現場選択</span><select value={site} onChange={e => changeSite(e.target.value)}>{(categoryData[work] ?? []).map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="memo-card"><span>メモ <small>任意</small></span><textarea maxLength={200} value={memo} onChange={e => setMemo(e.target.value)} placeholder="作業内容や気になる点を入力"/><b>{memo.length}/200</b></label>
           </section>
-          {(queueStatus.pending > 0 || queueStatus.sending > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 ? "waiting" : ""}`} role="status">{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.pending > 0 ? `未送信 ${queueStatus.pending}件` : syncNotice}</div>}
+          {(queueStatus.pending > 0 || queueStatus.sending > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 ? "waiting" : ""}`} role="status">{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</div>}
           <button className="capture-button" onClick={capture} disabled={!work || !site || savingLocally} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
         </div> : <MobilePhotos photos={allPhotos} onSelect={setSelected}/>} 
