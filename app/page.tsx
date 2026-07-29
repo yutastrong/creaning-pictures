@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient, type User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
 import { zip } from "fflate";
 import { supabase } from "@/lib/supabase/client";
 import { getQueuedPhotos, removeQueuedPhoto, saveQueuedPhoto, type QueuedPhoto } from "@/lib/offline-photo-queue";
@@ -375,38 +375,16 @@ export default function Home() {
   }
 
   async function uploadQueuedImage(photo: QueuedPhoto) {
-    const { data:{ session } } = await supabase.auth.getSession();
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!session || !supabaseUrl || !publicKey) throw new Error("ログイン情報を確認できません");
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 20000);
-    try {
-      const uploadClient = createClient(supabaseUrl, publicKey, {
-        auth:{
-          persistSession:false,
-          autoRefreshToken:false,
-        },
-        global:{
-          headers:{ Authorization:`Bearer ${session.access_token}` },
-          fetch:(input, init) => fetch(input, { ...init, signal:controller.signal }),
-        },
-      });
-      const { error } = await uploadClient.storage
+    const { error } = await withTimeout(
+      supabase.storage
         .from("field-photos")
         .upload(photo.imagePath, photo.imageBlob, {
           contentType:"image/jpeg",
           upsert:true,
-        });
-      if (error) throw new Error(error.message);
-    } catch (error) {
-      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-        throw new Error("画像送信がタイムアウトしました");
-      }
-      throw error;
-    } finally {
-      window.clearTimeout(timer);
-    }
+        }),
+      20000,
+    );
+    if (error) throw new Error(error.message);
   }
 
   async function syncQueuedPhotos() {
