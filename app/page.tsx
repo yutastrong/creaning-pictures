@@ -17,6 +17,17 @@ type PhotoItem = {
   image: string;
 };
 
+type MemberItem = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "staff";
+  isActive: boolean;
+  status: "active" | "invited" | "stopped";
+  lastSignInAt: string | null;
+  createdAt: string;
+};
+
 const photos: PhotoItem[] = [
   { id: 1, site: "第二小学校", work: "トイレ清掃", member: "山田 太郎", time: "2024/06/15 10:32", memo: "男子トイレの作業完了", comments: 1, image: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=900&q=85" },
   { id: 2, site: "第二小学校", work: "トイレ清掃", member: "山田 太郎", time: "2024/06/15 10:28", memo: "個室内を確認済み", comments: 0, image: "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?auto=format&fit=crop&w=900&q=85" },
@@ -49,9 +60,9 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
-  const [profile, setProfile] = useState<{ display_name:string; role:"admin"|"staff" } | null>(null);
+  const [profile, setProfile] = useState<{ display_name:string; role:"admin"|"staff"; is_active:boolean } | null>(null);
   const [mobileTab, setMobileTab] = useState<"capture" | "photos">("capture");
-  const [desktopSection, setDesktopSection] = useState<"photos" | "categories">("photos");
+  const [desktopSection, setDesktopSection] = useState<"photos" | "categories" | "members">("photos");
   const [categoryData, setCategoryData] = useState<Record<string, string[]>>(siteMap);
   const [work, setWork] = useState("トイレ清掃");
   const [site, setSite] = useState("第二小学校");
@@ -107,12 +118,18 @@ export default function Home() {
 
   async function loadSupabaseData(userId: string) {
     const [{ data: profileRow }, { data: workRows }, { data: siteRows }, { data: photoRows }] = await Promise.all([
-      supabase.from("profiles").select("display_name, role").eq("id", userId).single(),
+      supabase.from("profiles").select("display_name, role, is_active").eq("id", userId).single(),
       supabase.from("work_items").select("id, name, sort_order").order("sort_order"),
       supabase.from("sites").select("id, work_item_id, name, sort_order").eq("is_active", true).order("sort_order"),
       supabase.from("photos").select("id, memo, image_path, captured_at, member_name, work_items(name), sites(name)").order("captured_at", { ascending:false }),
     ]);
-    if (profileRow) setProfile(profileRow);
+    if (profileRow) {
+      if (!profileRow.is_active) {
+        await supabase.auth.signOut();
+        return;
+      }
+      setProfile(profileRow);
+    }
     if (workRows && siteRows) {
       const nextData: Record<string,string[]> = {};
       const nextIds: Record<string,{workId:string;sites:Record<string,string>}> = {};
@@ -484,10 +501,15 @@ export default function Home() {
 
   if (authLoading) return <div className="auth-loading">読み込み中…</div>;
   if (!user) return <LoginScreen />;
-  if (passwordRecovery) return <ChangePasswordScreen onDone={() => setPasswordRecovery(false)} />;
+  if (passwordRecovery || user?.user_metadata?.must_set_password) return <ChangePasswordScreen onDone={() => setPasswordRecovery(false)} />;
 
   const displayName = profile?.display_name ?? user.email?.split("@")[0] ?? "スタッフ";
   const avatarText = displayName.slice(0, 1);
+  const desktopPage = {
+    photos:{ eyebrow:"PHOTO LIBRARY", title:"写真一覧" },
+    categories:{ eyebrow:"WORK SETTINGS", title:"作業項目・現場管理" },
+    members:{ eyebrow:"MEMBER MANAGEMENT", title:"メンバー管理" },
+  }[desktopSection];
 
   return <>
     <div className="mobile-app">
@@ -514,14 +536,14 @@ export default function Home() {
       </nav>
     </div>
 
-    <div className="desktop-app">
+    {profile?.role === "admin" ? <div className="desktop-app">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">▣</div><span>現場写真共有</span></div>
-        <nav><button className={desktopSection === "photos" ? "active" : ""} onClick={() => setDesktopSection("photos")}><Icon>▧</Icon>写真一覧</button><button className={desktopSection === "categories" ? "active" : ""} onClick={() => setDesktopSection("categories")}><Icon>☷</Icon>項目の追加</button><button><Icon>♙</Icon>メンバー</button></nav>
+        <nav><button className={desktopSection === "photos" ? "active" : ""} onClick={() => setDesktopSection("photos")}><Icon>▧</Icon>写真一覧</button><button className={desktopSection === "categories" ? "active" : ""} onClick={() => setDesktopSection("categories")}><Icon>☷</Icon>項目の追加</button><button className={desktopSection === "members" ? "active" : ""} onClick={() => setDesktopSection("members")}><Icon>♙</Icon>メンバー</button></nav>
         <button className="profile" onClick={() => supabase.auth.signOut()}><div className="profile-avatar">{avatarText}</div><div><b>{displayName}</b><small>{profile?.role === "admin" ? "管理者" : "スタッフ"}・クリックでログアウト</small></div><span>⌄</span></button>
       </aside>
       <main className="desktop-main">
-        <header className="page-head"><div><span className="eyebrow">{desktopSection === "photos" ? "PHOTO LIBRARY" : "WORK SETTINGS"}</span><h1>{desktopSection === "photos" ? "写真一覧" : "作業項目・現場管理"}</h1></div>{desktopSection === "photos" && <button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button>}</header>
+        <header className="page-head"><div><span className="eyebrow">{desktopPage.eyebrow}</span><h1>{desktopPage.title}</h1></div>{desktopSection === "photos" && <button className="refresh" onClick={() => location.reload()}>↻ <span>更新</span></button>}</header>
         {desktopSection === "photos" ? <section className="workspace">
           <div className="filters">
             <label>作業項目<select value={filters.work} onChange={e => setFilters({...filters, work:e.target.value})}><option>すべて</option>{Object.keys(categoryData).map(x => <option key={x}>{x}</option>)}</select></label>
@@ -534,9 +556,9 @@ export default function Home() {
           {bulkDownloadError && <p className="bulk-download-error" role="alert">{bulkDownloadError}</p>}
           <div className={`photo-grid ${selectionMode ? "is-selecting" : ""}`}>{filtered.map(p => <PhotoCard key={p.id} photo={p} selected={selectedPhotoIds.has(p.id)} selectionMode={selectionMode} onClick={() => selectionMode ? togglePhotoSelection(p.id) : setSelected(p)}/>)}</div>
           {!filtered.length && <div className="empty">条件に一致する写真はありません</div>}
-        </section> : profile?.role === "admin" ? <WorkCategoryManager data={categoryData} onChange={updateMasterData}/> : <div className="workspace empty">作業項目と現場の編集は管理者のみ利用できます</div>} 
+        </section> : desktopSection === "categories" ? <WorkCategoryManager data={categoryData} onChange={updateMasterData}/> : <MemberManager currentUserId={user.id}/>}
       </main>
-    </div>
+    </div> : profile && <div className="desktop-restricted"><div className="restricted-panel"><div className="restricted-icon">▣</div><span>STAFF MOBILE APP</span><h1>PC版は管理者専用です</h1><p>撮影と写真確認はスマートフォンからご利用ください。</p><button onClick={() => supabase.auth.signOut()}>ログアウト</button></div></div>}
     {selected && <PhotoModal photo={selected} onClose={() => setSelected(null)}/>} 
     {pendingPhoto && <CaptureReview image={pendingPhoto} onSave={savePhoto} onRetake={() => setPendingPhoto(null)}/>} 
   </>;
@@ -594,7 +616,7 @@ function ChangePasswordScreen({ onDone }: { onDone:()=>void }) {
       setMessage("8文字以上で入力してください");
       return;
     }
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({ password, data:{ must_set_password:false } });
     if (error) setMessage("パスワードを更新できませんでした");
     else onDone();
   }
@@ -608,6 +630,116 @@ function ChangePasswordScreen({ onDone }: { onDone:()=>void }) {
       <button>パスワードを保存</button>
     </form>
   </section></main>;
+}
+
+function MemberManager({ currentUserId }: { currentUserId:string }) {
+  const [members, setMembers] = useState<MemberItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [editor, setEditor] = useState<{ mode:"add"|"edit"; id?:string; displayName:string; email:string; role:"admin"|"staff" } | null>(null);
+
+  useEffect(() => {
+    void loadMembers();
+  }, []);
+
+  async function adminRequest(method: "GET"|"POST"|"PATCH", body?:Record<string,unknown>) {
+    const { data:{ session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("ログインし直してください");
+    const response = await fetch("/api/admin/members", {
+      method,
+      headers:{
+        Authorization:`Bearer ${session.access_token}`,
+        ...(body ? { "Content-Type":"application/json" } : {}),
+      },
+      body:body ? JSON.stringify(body) : undefined,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "処理に失敗しました");
+    return result;
+  }
+
+  async function loadMembers() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await adminRequest("GET");
+      setMembers(result.members);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "メンバーを読み込めませんでした");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function flash(text: string) {
+    setMessage(text);
+    window.setTimeout(() => setMessage(""), 3000);
+  }
+
+  async function saveMember(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editor) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      if (editor.mode === "add") {
+        await adminRequest("POST", {
+          displayName:editor.displayName,
+          email:editor.email,
+          role:editor.role,
+        });
+        flash("招待メールを送信しました");
+      } else {
+        await adminRequest("PATCH", {
+          id:editor.id,
+          action:"edit",
+          displayName:editor.displayName,
+          role:editor.role,
+        });
+        flash("メンバー情報を更新しました");
+      }
+      setEditor(null);
+      await loadMembers();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "保存できませんでした");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function runMemberAction(member: MemberItem, action:"stop"|"activate"|"password_reset") {
+    const actionLabel = action === "stop" ? "利用停止" : action === "activate" ? "利用再開" : "設定メール送信";
+    if (action !== "password_reset" && !window.confirm(`${member.displayName}さんを${actionLabel}にしますか？`)) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await adminRequest("PATCH", { id:member.id, email:member.email, action });
+      flash(action === "password_reset" ? "設定メールを送信しました" : `${actionLabel}にしました`);
+      await loadMembers();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "操作に失敗しました");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function formatMemberDate(value: string | null) {
+    if (!value) return "まだありません";
+    return formatLocalDateTime(new Date(value));
+  }
+
+  return <section className="member-workspace">
+    <div className="member-toolbar"><div><b>登録メンバー</b><p>スタッフの招待、権限変更、利用停止を管理できます。</p></div><button onClick={() => setEditor({ mode:"add", displayName:"", email:"", role:"staff" })}>＋ メンバーを追加</button></div>
+    {message && <div className="member-success" role="status">{message}</div>}
+    {error && <div className="member-error" role="alert">{error}</div>}
+    <div className="member-summary"><div><span>登録</span><b>{members.length}</b></div><div><span>利用中</span><b>{members.filter(member => member.status === "active").length}</b></div><div><span>招待中</span><b>{members.filter(member => member.status === "invited").length}</b></div><div><span>利用停止</span><b>{members.filter(member => member.status === "stopped").length}</b></div></div>
+    <div className="member-table-wrap">
+      {loading ? <div className="member-loading">読み込み中…</div> : <table className="member-table"><thead><tr><th>メンバー</th><th>権限</th><th>状態</th><th>最終ログイン</th><th>操作</th></tr></thead><tbody>{members.map(member => <tr key={member.id}><td><div className="member-identity"><span>{member.displayName.slice(0, 1) || "?"}</span><div><b>{member.displayName}{member.id === currentUserId && <em>自分</em>}</b><small>{member.email}</small></div></div></td><td><span className={`role-badge ${member.role}`}>{member.role === "admin" ? "管理者" : "スタッフ"}</span></td><td><span className={`member-status ${member.status}`}>{member.status === "active" ? "利用中" : member.status === "invited" ? "招待中" : "利用停止"}</span></td><td>{formatMemberDate(member.lastSignInAt)}</td><td><div className="member-actions"><button onClick={() => setEditor({ mode:"edit", id:member.id, displayName:member.displayName, email:member.email, role:member.role })}>編集</button><button onClick={() => runMemberAction(member, "password_reset")}>{member.status === "invited" ? "設定メールを再送" : "パスワード再設定"}</button>{member.status === "stopped" ? <button className="activate-member" onClick={() => runMemberAction(member, "activate")}>利用再開</button> : <button className="stop-member" disabled={member.id === currentUserId} onClick={() => runMemberAction(member, "stop")}>利用停止</button>}</div></td></tr>)}</tbody></table>}
+    </div>
+    {editor && <div className="member-editor-backdrop" onMouseDown={() => !submitting && setEditor(null)}><form className="member-editor" onSubmit={saveMember} onMouseDown={event => event.stopPropagation()}><div className="member-editor-head"><div><small>{editor.mode === "add" ? "NEW MEMBER" : "EDIT MEMBER"}</small><h2>{editor.mode === "add" ? "メンバーを追加" : "メンバーを編集"}</h2></div><button type="button" onClick={() => setEditor(null)}>×</button></div><label>名前<input required value={editor.displayName} onChange={event => setEditor({ ...editor, displayName:event.target.value })} placeholder="例：山田 太郎"/></label><label>メールアドレス<input type="email" required disabled={editor.mode === "edit"} value={editor.email} onChange={event => setEditor({ ...editor, email:event.target.value })} placeholder="staff@example.com"/></label><label>権限<select value={editor.role} onChange={event => setEditor({ ...editor, role:event.target.value as "admin"|"staff" })}><option value="staff">スタッフ</option><option value="admin">管理者</option></select></label>{editor.mode === "add" && <p>追加すると、本人へパスワード設定用の招待メールが届きます。</p>}<div className="member-editor-actions"><button type="button" onClick={() => setEditor(null)}>キャンセル</button><button type="submit" disabled={submitting}>{submitting ? "処理中…" : editor.mode === "add" ? "招待メールを送信" : "変更を保存"}</button></div></form></div>}
+  </section>;
 }
 
 function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>, onChange:(next:Record<string,string[]>)=>void }) {
