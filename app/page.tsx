@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import { zip } from "fflate";
 import { supabase } from "@/lib/supabase/client";
 import { getQueuedPhotos, removeQueuedPhoto, saveQueuedPhoto, type QueuedPhoto } from "@/lib/offline-photo-queue";
@@ -381,25 +381,26 @@ export default function Home() {
     if (!session || !supabaseUrl || !publicKey) throw new Error("ログイン情報を確認できません");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 20000);
-    const encodedPath = photo.imagePath.split("/").map(encodeURIComponent).join("/");
     try {
-      const response = await fetch(`${supabaseUrl}/storage/v1/object/field-photos/${encodedPath}`, {
-        method:"POST",
-        headers:{
-          Authorization:`Bearer ${session.access_token}`,
-          apikey:publicKey,
-          "Content-Type":"image/jpeg",
-          "x-upsert":"true",
+      const uploadClient = createClient(supabaseUrl, publicKey, {
+        auth:{
+          persistSession:false,
+          autoRefreshToken:false,
         },
-        body:photo.imageBlob,
-        signal:controller.signal,
+        global:{
+          headers:{ Authorization:`Bearer ${session.access_token}` },
+          fetch:(input, init) => fetch(input, { ...init, signal:controller.signal }),
+        },
       });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(body || `画像送信エラー (${response.status})`);
-      }
+      const { error } = await uploadClient.storage
+        .from("field-photos")
+        .upload(photo.imagePath, photo.imageBlob, {
+          contentType:"image/jpeg",
+          upsert:true,
+        });
+      if (error) throw new Error(error.message);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         throw new Error("画像送信がタイムアウトしました");
       }
       throw error;
@@ -441,7 +442,7 @@ export default function Home() {
         } catch (sendError) {
           const reason = sendError instanceof Error ? sendError.message : "通信エラー";
           await saveQueuedPhoto({ ...photo, status:"pending", lastError:reason });
-          setSyncNotice("送信できませんでした。通信回復後に自動再送します");
+          setSyncNotice(`送信失敗: ${reason.slice(0, 80)}`);
           break;
         }
       }
