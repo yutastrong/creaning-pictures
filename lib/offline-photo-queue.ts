@@ -69,3 +69,27 @@ export async function removeQueuedPhoto(id: string) {
   await completeTransaction(transaction);
   database.close();
 }
+
+export async function removeQueuedPhotosForUser(userId: string) {
+  const database = await openQueueDatabase();
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  const store = transaction.objectStore(STORE_NAME);
+  const request = store.openCursor();
+
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const photo = cursor.value as QueuedPhoto;
+      if (photo.userId === userId) cursor.delete();
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  await completeTransaction(transaction);
+  database.close();
+}

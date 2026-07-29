@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { zip } from "fflate";
 import { supabase } from "@/lib/supabase/client";
-import { getQueuedPhotos, removeQueuedPhoto, saveQueuedPhoto, type QueuedPhoto } from "@/lib/offline-photo-queue";
+import { getQueuedPhotos, removeQueuedPhoto, removeQueuedPhotosForUser, saveQueuedPhoto, type QueuedPhoto } from "@/lib/offline-photo-queue";
 
 type PhotoItem = {
   id: string | number;
@@ -437,6 +437,20 @@ export default function Home() {
     }
   }
 
+  async function discardQueuedPhotos() {
+    if (!user || queueSyncingRef.current) return;
+    if (!window.confirm("未送信の写真をすべて削除しますか？\n削除した写真は元に戻せません。")) return;
+    try {
+      await removeQueuedPhotosForUser(user.id);
+      setQueueStatus({ pending:0, sending:0 });
+      setSyncNotice("");
+      setToast("未送信の写真を削除しました");
+      window.setTimeout(() => setToast(""), 2400);
+    } catch {
+      setToast("未送信の写真を削除できませんでした");
+    }
+  }
+
   async function savePhoto() {
     if (!pendingPhoto || !user || !profile) return;
     const workInfo = masterIds[work];
@@ -571,7 +585,7 @@ export default function Home() {
             <label className="field-card site-field"><span>現場選択</span><select value={site} onChange={e => changeSite(e.target.value)}>{(categoryData[work] ?? []).map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="memo-card"><span>メモ <small>任意</small></span><textarea maxLength={200} value={memo} onChange={e => setMemo(e.target.value)} placeholder="作業内容や気になる点を入力"/><b>{memo.length}/200</b></label>
           </section>
-          {(queueStatus.pending > 0 || queueStatus.sending > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 ? "waiting" : ""}`} role="status">{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</div>}
+          {(queueStatus.pending > 0 || queueStatus.sending > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 ? "waiting" : ""}`} role="status"><span>{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</span>{queueStatus.pending > 0 && queueStatus.sending === 0 && <button type="button" onClick={discardQueuedPhotos}>未送信を削除</button>}</div>}
           <button className="capture-button" onClick={capture} disabled={!work || !site || savingLocally} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
         </div> : <MobilePhotos photos={allPhotos} onSelect={setSelected}/>} 
