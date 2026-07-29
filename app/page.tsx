@@ -619,7 +619,7 @@ function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>,
         {selectedCategory ? <>
           <div className="editor-head"><div><small>選択中の作業項目</small><div className="category-name-edit"><input value={categoryName} onChange={e => setCategoryName(e.target.value)}/><button onClick={saveCategoryName}>名前を保存</button></div></div><button className="danger-link" onClick={removeCategory}>作業項目を削除</button></div>
           <div className="child-title"><div><small>子項目</small><h3>現場選択</h3><p>「{selectedCategory}」を選んだときに表示される現場です。</p></div><em>{(data[selectedCategory] ?? []).length}件</em></div>
-          <div className="add-site-row"><input value={newSite} onChange={e => setNewSite(e.target.value)} onKeyDown={e => e.key === "Enter" && addSite()} placeholder="新しい現場名を入力"/><button onClick={addSite}>＋ 現場を追加</button></div>
+          <div className="add-site-row"><input value={newSite} onChange={e => setNewSite(e.target.value)} placeholder="新しい現場名を入力"/><button type="button" onClick={addSite}>＋ 現場を追加</button></div>
           <div className="site-list">{(data[selectedCategory] ?? []).map((siteName,index) => <div className="site-edit-row" key={`${selectedCategory}-${index}`}><span className="drag-mark">⋮⋮</span><input value={siteName} onChange={e => updateSite(index,e.target.value)}/><span className={siteName === "それ以外" ? "other-badge" : "site-badge"}>{siteName === "それ以外" ? "共通" : "有効"}</span><button onClick={() => removeSite(index)} aria-label={`${siteName}を削除`}>削除</button></div>)}</div>
         </> : <div className="master-empty">作業項目を追加してください</div>}
       </div>
