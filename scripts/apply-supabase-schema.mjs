@@ -7,16 +7,20 @@ if (!databaseUrl) {
   throw new Error("POSTGRES_URL_NON_POOLING or POSTGRES_URL is required");
 }
 
-const sqlText = await fs.readFile(
-  new URL("../supabase/migrations/001_initial.sql", import.meta.url),
-  "utf8",
-);
+const migrationsDirectory = new URL("../supabase/migrations/", import.meta.url);
+const migrationFiles = (await fs.readdir(migrationsDirectory))
+  .filter(fileName => fileName.endsWith(".sql"))
+  .sort();
 
 const sql = postgres(databaseUrl, { max: 1, ssl: "require" });
 
 try {
-  await sql.unsafe(sqlText);
-  console.log("Supabase schema applied successfully.");
+  for (const migrationFile of migrationFiles) {
+    const sqlText = await fs.readFile(new URL(migrationFile, migrationsDirectory), "utf8");
+    await sql.unsafe(sqlText);
+    console.log(`Applied ${migrationFile}.`);
+  }
+  console.log("Supabase migrations applied successfully.");
 } finally {
   await sql.end();
 }

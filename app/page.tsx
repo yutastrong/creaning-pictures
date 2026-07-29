@@ -104,7 +104,7 @@ export default function Home() {
     const [{ data: profileRow }, { data: workRows }, { data: siteRows }, { data: photoRows }] = await Promise.all([
       supabase.from("profiles").select("display_name, role").eq("id", userId).single(),
       supabase.from("work_items").select("id, name, sort_order").order("sort_order"),
-      supabase.from("sites").select("id, work_item_id, name, sort_order").order("sort_order"),
+      supabase.from("sites").select("id, work_item_id, name, sort_order").eq("is_active", true).order("sort_order"),
       supabase.from("photos").select("id, memo, image_path, captured_at, member_name, work_items(name), sites(name)").order("captured_at", { ascending:false }),
     ]);
     if (profileRow) setProfile(profileRow);
@@ -254,16 +254,26 @@ export default function Home() {
     if (!refreshedWorks) return;
     for (const workRow of refreshedWorks) {
       const desiredSites = next[workRow.name] ?? [];
-      const { data: currentSites } = await supabase.from("sites").select("id, name").eq("work_item_id", workRow.id).order("sort_order");
+      const { data: currentSites } = await supabase.from("sites").select("id, name, is_active").eq("work_item_id", workRow.id).order("sort_order");
       if (!currentSites) continue;
-      const currentSiteNames = currentSites.map(row => row.name);
-      const removedSites = currentSites.filter(row => !desiredSites.includes(row.name));
-      const addedSites = desiredSites.filter(name => !currentSiteNames.includes(name));
-      if (removedSites.length === 1 && addedSites.length === 1 && currentSiteNames.length === desiredSites.length) {
+      const activeSites = currentSites.filter(row => row.is_active);
+      const activeSiteNames = activeSites.map(row => row.name);
+      const removedSites = activeSites.filter(row => !desiredSites.includes(row.name));
+      const addedSites = desiredSites.filter(name => !activeSiteNames.includes(name));
+      if (removedSites.length === 1 && addedSites.length === 1 && activeSiteNames.length === desiredSites.length) {
         await supabase.from("sites").update({ name:addedSites[0] }).eq("id", removedSites[0].id);
       } else {
-        for (const removed of removedSites) await supabase.from("sites").delete().eq("id", removed.id);
-        for (const name of addedSites) await supabase.from("sites").insert({ work_item_id:workRow.id, name, sort_order:(desiredSites.indexOf(name) + 1) * 10 });
+        for (const removed of removedSites) {
+          await supabase.from("sites").update({ is_active:false }).eq("id", removed.id);
+        }
+        for (const name of addedSites) {
+          const inactiveSite = currentSites.find(row => row.name === name && !row.is_active);
+          if (inactiveSite) {
+            await supabase.from("sites").update({ is_active:true, sort_order:(desiredSites.indexOf(name) + 1) * 10 }).eq("id", inactiveSite.id);
+          } else {
+            await supabase.from("sites").insert({ work_item_id:workRow.id, name, is_active:true, sort_order:(desiredSites.indexOf(name) + 1) * 10 });
+          }
+        }
       }
     }
     await loadSupabaseData(user.id);
