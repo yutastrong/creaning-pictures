@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { zip } from "fflate";
 import { supabase } from "@/lib/supabase/client";
 import { getQueuedPhotos, removeQueuedPhoto, saveQueuedPhoto, type QueuedPhoto } from "@/lib/offline-photo-queue";
 
@@ -62,6 +63,10 @@ export default function Home() {
   const [masterIds, setMasterIds] = useState<Record<string, { workId:string; sites:Record<string,string> }>>({});
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
   const [selected, setSelected] = useState<PhotoItem | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<PhotoItem["id"]>>(new Set());
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [bulkDownloadError, setBulkDownloadError] = useState("");
   const [queueStatus, setQueueStatus] = useState({ pending:0, sending:0 });
   const [syncNotice, setSyncNotice] = useState("");
   const [savingLocally, setSavingLocally] = useState(false);
@@ -421,6 +426,62 @@ export default function Home() {
     (filters.member === "すべて" || p.member === filters.member)
   ), [filters, allPhotos]);
 
+  function togglePhotoSelection(photoId: PhotoItem["id"]) {
+    setSelectedPhotoIds(current => {
+      const next = new Set(current);
+      if (next.has(photoId)) next.delete(photoId);
+      else next.add(photoId);
+      return next;
+    });
+    setBulkDownloadError("");
+  }
+
+  function cancelPhotoSelection() {
+    setSelectionMode(false);
+    setSelectedPhotoIds(new Set());
+    setBulkDownloadError("");
+  }
+
+  function selectAllFilteredPhotos() {
+    setSelectedPhotoIds(new Set(filtered.map(photo => photo.id)));
+    setBulkDownloadError("");
+  }
+
+  async function downloadSelectedPhotos() {
+    const selectedPhotos = allPhotos.filter(photo => selectedPhotoIds.has(photo.id));
+    if (!selectedPhotos.length || bulkDownloading) return;
+    setBulkDownloading(true);
+    setBulkDownloadError("");
+    try {
+      const files: Record<string, Uint8Array> = {};
+      await Promise.all(selectedPhotos.map(async (photo, index) => {
+        const response = await fetch(photo.image);
+        if (!response.ok) throw new Error("photo download failed");
+        const safeSite = photo.site.replace(/[\\/:*?"<>|]/g, "_");
+        const safeTime = photo.time.replace(/[^\d]/g, "").slice(0, 12);
+        const sequence = String(index + 1).padStart(2, "0");
+        files[`${safeSite}_${safeTime}_${sequence}.jpg`] = new Uint8Array(await response.arrayBuffer());
+      }));
+      const archive = await new Promise<Uint8Array>((resolve, reject) => {
+        zip(files, { level:0 }, (error, data) => error ? reject(error) : resolve(data));
+      });
+      const objectUrl = URL.createObjectURL(new Blob([archive as BlobPart], { type:"application/zip" }));
+      const link = document.createElement("a");
+      const today = formatLocalDateTime(new Date()).slice(0, 10).replaceAll("/", "-");
+      link.href = objectUrl;
+      link.download = `現場写真_${today}_${selectedPhotos.length}枚.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      cancelPhotoSelection();
+    } catch {
+      setBulkDownloadError("一括ダウンロードに失敗しました。画面を更新して、もう一度お試しください。");
+    } finally {
+      setBulkDownloading(false);
+    }
+  }
+
   if (authLoading) return <div className="auth-loading">読み込み中…</div>;
   if (!user) return <LoginScreen />;
   if (passwordRecovery) return <ChangePasswordScreen onDone={() => setPasswordRecovery(false)} />;
@@ -469,8 +530,9 @@ export default function Home() {
             <button className="clear" onClick={() => setFilters({work:"すべて",site:"すべて",member:"すべて"})}>クリア</button>
           </div>
           <div className="sites"><span>現場一覧</span><div><button className={filters.site === "すべて" ? "active" : ""} onClick={() => setFilters({...filters,site:"すべて"})}>すべて</button>{[...new Set(allPhotos.map(p => p.site))].map(x => <button key={x} className={filters.site === x ? "active" : ""} onClick={() => setFilters({...filters,site:x})}>{x}</button>)}</div></div>
-          <div className="result-bar"><p><b>{filtered.length}</b> 件の写真</p></div>
-          <div className="photo-grid">{filtered.map(p => <PhotoCard key={p.id} photo={p} onClick={() => setSelected(p)}/>)}</div>
+          <div className={`result-bar ${selectionMode ? "selection-active" : ""}`}><p>{selectionMode ? <><b>{selectedPhotoIds.size}</b> 枚選択中</> : <><b>{filtered.length}</b> 件の写真</>}</p>{selectionMode ? <div className="selection-actions"><button type="button" onClick={selectAllFilteredPhotos} disabled={!filtered.length}>すべて選択</button><button type="button" onClick={() => setSelectedPhotoIds(new Set())} disabled={!selectedPhotoIds.size}>選択を解除</button><button type="button" className="bulk-download" onClick={downloadSelectedPhotos} disabled={!selectedPhotoIds.size || bulkDownloading}>{bulkDownloading ? "ZIPを作成中…" : "まとめてダウンロード"}</button><button type="button" onClick={cancelPhotoSelection}>キャンセル</button></div> : <button type="button" className="start-selection" onClick={() => setSelectionMode(true)} disabled={!filtered.length}>写真を選択</button>}</div>
+          {bulkDownloadError && <p className="bulk-download-error" role="alert">{bulkDownloadError}</p>}
+          <div className={`photo-grid ${selectionMode ? "is-selecting" : ""}`}>{filtered.map(p => <PhotoCard key={p.id} photo={p} selected={selectedPhotoIds.has(p.id)} selectionMode={selectionMode} onClick={() => selectionMode ? togglePhotoSelection(p.id) : setSelected(p)}/>)}</div>
           {!filtered.length && <div className="empty">条件に一致する写真はありません</div>}
         </section> : profile?.role === "admin" ? <WorkCategoryManager data={categoryData} onChange={updateMasterData}/> : <div className="workspace empty">作業項目と現場の編集は管理者のみ利用できます</div>} 
       </main>
@@ -670,8 +732,8 @@ function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>v
   </div>;
 }
 
-function PhotoCard({ photo, onClick }: { photo:PhotoItem, onClick:()=>void }) {
-  return <button className="photo-card" onClick={onClick}><img src={photo.image} alt={`${photo.site}の${photo.work}`}/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
+function PhotoCard({ photo, onClick, selectionMode=false, selected=false }: { photo:PhotoItem, onClick:()=>void, selectionMode?:boolean, selected?:boolean }) {
+  return <button className={`photo-card ${selected ? "selected" : ""}`} onClick={onClick} aria-pressed={selectionMode ? selected : undefined}>{selectionMode && <span className="photo-check" aria-hidden="true">{selected ? "✓" : ""}</span>}<img src={photo.image} alt={`${photo.site}の${photo.work}`}/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
 }
 
 function MobilePhotos({ photos: photoItems, onSelect }: { photos:PhotoItem[], onSelect:(p:PhotoItem)=>void }) {
