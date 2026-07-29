@@ -555,6 +555,9 @@ function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>,
   const [newCategory, setNewCategory] = useState("");
   const [newSite, setNewSite] = useState("");
   const [message, setMessage] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<
+    { type:"category"; name:string } | { type:"site"; name:string; index:number } | null
+  >(null);
 
   useEffect(() => {
     const available = Object.keys(data);
@@ -588,10 +591,8 @@ function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>,
   }
 
   function removeCategory() {
-    if (!selectedCategory || !window.confirm(`「${selectedCategory}」と、その現場を削除しますか？`)) return;
-    const next = Object.fromEntries(Object.entries(data).filter(([key]) => key !== selectedCategory));
-    onChange(next);
-    flash("作業項目を削除しました");
+    if (!selectedCategory) return;
+    setDeleteTarget({ type:"category", name:selectedCategory });
   }
 
   function updateSite(index: number, value: string) {
@@ -612,12 +613,26 @@ function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>,
   }
 
   function removeSite(index: number) {
-    const sites = (data[selectedCategory] ?? []).filter((_, siteIndex) => siteIndex !== index);
-    onChange({ ...data, [selectedCategory]: sites });
-    flash("現場を削除しました");
+    const siteName = data[selectedCategory]?.[index];
+    if (!siteName) return;
+    setDeleteTarget({ type:"site", name:siteName, index });
   }
 
-  return <section className="master-workspace">
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === "category") {
+      const next = Object.fromEntries(Object.entries(data).filter(([key]) => key !== deleteTarget.name));
+      onChange(next);
+      flash("作業項目を削除しました");
+    } else {
+      const sites = (data[selectedCategory] ?? []).filter((_, siteIndex) => siteIndex !== deleteTarget.index);
+      onChange({ ...data, [selectedCategory]: sites });
+      flash("現場を削除しました");
+    }
+    setDeleteTarget(null);
+  }
+
+  return <><section className="master-workspace">
     <div className="master-intro"><div><b>作業項目と現場を編集</b><p>作業項目を選ぶと、その中に登録されている現場を編集できます。</p></div>{message && <span>{message}</span>}</div>
     <div className="master-layout">
       <aside className="category-panel">
@@ -634,7 +649,16 @@ function WorkCategoryManager({ data, onChange }: { data:Record<string,string[]>,
         </> : <div className="master-empty">作業項目を追加してください</div>}
       </div>
     </div>
-  </section>;
+  </section>
+  {deleteTarget && <div className="confirm-backdrop" role="presentation" onMouseDown={() => setDeleteTarget(null)}>
+    <section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" onMouseDown={event => event.stopPropagation()}>
+      <div className="confirm-icon">!</div>
+      <h2 id="delete-dialog-title">{deleteTarget.type === "category" ? "作業項目を削除しますか？" : "現場を削除しますか？"}</h2>
+      <p>「{deleteTarget.name}」を削除します。{deleteTarget.type === "category" ? "登録されている現場も選択肢から削除されます。" : "過去に保存した写真には現場名が残ります。"}</p>
+      <div className="confirm-actions"><button type="button" onClick={() => setDeleteTarget(null)}>キャンセル</button><button type="button" className="confirm-delete" onClick={confirmDelete}>削除する</button></div>
+    </section>
+  </div>}
+  </>;
 }
 
 function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>void, onRetake:()=>void }) {
