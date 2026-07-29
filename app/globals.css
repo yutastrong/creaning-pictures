@@ -25,7 +25,7 @@
   .field-card>span,.memo-card>span{font-size:10px}
   .field-card select{height:38px;border-radius:8px;padding:0 8px;font-size:13px}
   .memo-card{grid-column:1/-1;position:relative}
-  .memo-card textarea{min-height:42px;height:42px;padding:8px 46px 8px 9px;font-size:12px}
+  .memo-card textarea{min-height:42px;height:42px;padding:8px 46px 8px 9px;font-size:16px}
   .memo-card b{position:absolute;right:15px;bottom:14px}
   .capture-button{position:relative;left:auto;bottom:auto;z-index:auto;width:64px;height:64px;margin:7px auto 0;border-width:5px;font-size:23px;transform:none}
   .capture-button:active{transform:scale(.96)}
