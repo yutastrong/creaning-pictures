@@ -6,9 +6,11 @@ export type QueuedPhoto = {
   memberName: string;
   memo: string;
   imagePath: string;
-  imageBlob: Blob;
+  imageData?: ArrayBuffer;
+  imageBlob?: Blob;
   capturedAt: string;
-  status: "pending" | "sending";
+  status: "pending" | "sending" | "failed";
+  attempts?: number;
   lastError?: string;
 };
 

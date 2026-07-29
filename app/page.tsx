@@ -90,7 +90,7 @@ export default function Home() {
   const [bulkDownloadError, setBulkDownloadError] = useState("");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountPasswordOpen, setAccountPasswordOpen] = useState(false);
-  const [queueStatus, setQueueStatus] = useState({ pending:0, sending:0 });
+  const [queueStatus, setQueueStatus] = useState({ pending:0, sending:0, failed:0 });
   const [syncNotice, setSyncNotice] = useState("");
   const [savingLocally, setSavingLocally] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -368,17 +368,24 @@ export default function Home() {
       setQueueStatus({
         pending: queued.filter(photo => photo.status === "pending").length,
         sending: queued.filter(photo => photo.status === "sending").length,
+        failed: queued.filter(photo => photo.status === "failed").length,
       });
     } catch {
-      setQueueStatus({ pending:0, sending:0 });
+      setQueueStatus({ pending:0, sending:0, failed:0 });
     }
   }
 
   async function uploadQueuedImage(photo: QueuedPhoto) {
+    let imageData = photo.imageData;
+    if (!imageData && photo.imageBlob) imageData = await photo.imageBlob.arrayBuffer();
+    if (!imageData || imageData.byteLength < 1000) {
+      throw new Error("端末内の写真データが壊れています");
+    }
+    const uploadBlob = new Blob([imageData], { type:"image/jpeg" });
     const { error } = await withTimeout(
       supabase.storage
         .from("field-photos")
-        .upload(photo.imagePath, photo.imageBlob, {
+        .upload(photo.imagePath, uploadBlob, {
           contentType:"image/jpeg",
           upsert:true,
         }),
@@ -393,10 +400,11 @@ export default function Home() {
     setSyncNotice("");
     let savedCount = 0;
     try {
-      const queued = await getQueuedPhotos(user.id);
+      const queued = (await getQueuedPhotos(user.id)).filter(photo => photo.status !== "failed");
       for (const photo of queued) {
         if (!navigator.onLine) break;
-        await saveQueuedPhoto({ ...photo, status:"sending", lastError:undefined });
+        const attempts = (photo.attempts ?? 0) + 1;
+        await saveQueuedPhoto({ ...photo, status:"sending", attempts, lastError:undefined });
         await refreshQueueStatus(user.id);
         try {
           await uploadQueuedImage(photo);
@@ -419,9 +427,10 @@ export default function Home() {
           await refreshQueueStatus(user.id);
         } catch (sendError) {
           const reason = sendError instanceof Error ? sendError.message : "通信エラー";
-          await saveQueuedPhoto({ ...photo, status:"pending", lastError:reason });
-          setSyncNotice(`送信失敗: ${reason.slice(0, 80)}`);
-          break;
+          const permanentlyFailed = attempts >= 3 || reason.includes("写真データが壊れています");
+          await saveQueuedPhoto({ ...photo, status:permanentlyFailed ? "failed" : "pending", attempts, lastError:reason });
+          setSyncNotice(permanentlyFailed ? "送信できない写真を分離しました" : `送信失敗: ${reason.slice(0, 80)}`);
+          await refreshQueueStatus(user.id);
         }
       }
       if (savedCount > 0) {
@@ -442,12 +451,27 @@ export default function Home() {
     if (!window.confirm("未送信の写真をすべて削除しますか？\n削除した写真は元に戻せません。")) return;
     try {
       await removeQueuedPhotosForUser(user.id);
-      setQueueStatus({ pending:0, sending:0 });
+      setQueueStatus({ pending:0, sending:0, failed:0 });
       setSyncNotice("");
       setToast("未送信の写真を削除しました");
       window.setTimeout(() => setToast(""), 2400);
     } catch {
       setToast("未送信の写真を削除できませんでした");
+    }
+  }
+
+  async function retryFailedPhotos() {
+    if (!user || queueSyncingRef.current) return;
+    try {
+      const queued = await getQueuedPhotos(user.id);
+      await Promise.all(queued.filter(photo => photo.status === "failed").map(photo =>
+        saveQueuedPhoto({ ...photo, status:"pending", attempts:0, lastError:undefined })
+      ));
+      setSyncNotice("再送を開始します");
+      await refreshQueueStatus(user.id);
+      void syncQueuedPhotos();
+    } catch {
+      setSyncNotice("再送を開始できませんでした");
     }
   }
 
@@ -469,6 +493,8 @@ export default function Home() {
     setToast("端末に一時保存中…");
     try {
       const imageBlob = await fetch(photoDataUrl).then(response => response.blob());
+      const imageData = await imageBlob.arrayBuffer();
+      if (imageData.byteLength < 1000) throw new Error("captured image is empty");
       const queuedPhoto: QueuedPhoto = {
         id: queueId,
         userId: user.id,
@@ -477,9 +503,10 @@ export default function Home() {
         memberName: profile.display_name,
         memo: queuedMemo,
         imagePath: `${user.id}/${queueId}.jpg`,
-        imageBlob,
+        imageData,
         capturedAt: new Date().toISOString(),
         status: "pending",
+        attempts: 0,
       };
       await saveQueuedPhoto(queuedPhoto);
       await refreshQueueStatus(user.id);
@@ -585,7 +612,7 @@ export default function Home() {
             <label className="field-card site-field"><span>現場選択</span><select value={site} onChange={e => changeSite(e.target.value)}>{(categoryData[work] ?? []).map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="memo-card"><span>メモ <small>任意</small></span><textarea maxLength={200} value={memo} onChange={e => setMemo(e.target.value)} placeholder="作業内容や気になる点を入力"/><b>{memo.length}/200</b></label>
           </section>
-          {(queueStatus.pending > 0 || queueStatus.sending > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 ? "waiting" : ""}`} role="status"><span>{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</span>{queueStatus.pending > 0 && queueStatus.sending === 0 && <button type="button" onClick={discardQueuedPhotos}>未送信を削除</button>}</div>}
+          {(queueStatus.pending > 0 || queueStatus.sending > 0 || queueStatus.failed > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 || queueStatus.failed > 0 ? "waiting" : ""}`} role="status"><span>{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.failed > 0 ? `送信できない写真 ${queueStatus.failed}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</span>{queueStatus.failed > 0 && queueStatus.sending === 0 && <button type="button" onClick={retryFailedPhotos}>再送</button>}{(queueStatus.pending > 0 || queueStatus.failed > 0) && queueStatus.sending === 0 && <button type="button" onClick={discardQueuedPhotos}>削除</button>}</div>}
           <button className="capture-button" onClick={capture} disabled={!work || !site || savingLocally} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
         </div> : <MobilePhotos photos={allPhotos} onSelect={setSelected}/>} 
