@@ -466,11 +466,10 @@ export default function Home() {
             <label>作業項目<select value={filters.work} onChange={e => setFilters({...filters, work:e.target.value})}><option>すべて</option>{Object.keys(categoryData).map(x => <option key={x}>{x}</option>)}</select></label>
             <label>現場名<select value={filters.site} onChange={e => setFilters({...filters, site:e.target.value})}><option>すべて</option>{[...new Set(allPhotos.map(p => p.site))].map(x => <option key={x}>{x}</option>)}</select></label>
             <label>メンバー<select value={filters.member} onChange={e => setFilters({...filters, member:e.target.value})}><option>すべて</option>{[...new Set(allPhotos.map(p => p.member))].map(x => <option key={x}>{x}</option>)}</select></label>
-            <label>期間<div className="date-range">2024/06/01 〜 2024/06/15 <span>▦</span></div></label>
             <button className="clear" onClick={() => setFilters({work:"すべて",site:"すべて",member:"すべて"})}>クリア</button>
           </div>
           <div className="sites"><span>現場一覧</span><div><button className={filters.site === "すべて" ? "active" : ""} onClick={() => setFilters({...filters,site:"すべて"})}>すべて</button>{[...new Set(allPhotos.map(p => p.site))].map(x => <button key={x} className={filters.site === x ? "active" : ""} onClick={() => setFilters({...filters,site:x})}>{x}</button>)}</div></div>
-          <div className="result-bar"><p><b>{filtered.length}</b> 件の写真</p><div><button className="view-active">▦</button><button>☷</button><select><option>撮影日時（新しい順）</option><option>撮影日時（古い順）</option></select></div></div>
+          <div className="result-bar"><p><b>{filtered.length}</b> 件の写真</p></div>
           <div className="photo-grid">{filtered.map(p => <PhotoCard key={p.id} photo={p} onClick={() => setSelected(p)}/>)}</div>
           {!filtered.length && <div className="empty">条件に一致する写真はありません</div>}
         </section> : profile?.role === "admin" ? <WorkCategoryManager data={categoryData} onChange={updateMasterData}/> : <div className="workspace empty">作業項目と現場の編集は管理者のみ利用できます</div>} 
