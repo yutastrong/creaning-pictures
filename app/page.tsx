@@ -145,21 +145,24 @@ export default function Home() {
   useEffect(() => {
     const mobileQuery = window.matchMedia("(max-width: 760px)");
     const handleViewportChange = () => {
-      if (mobileQuery.matches && mobileTab === "capture") startCamera();
-      else stopCamera();
+      if (!user || !mobileQuery.matches) {
+        stopCamera();
+        return;
+      }
+      if (mobileTab === "capture") void startCamera();
     };
     handleViewportChange();
     mobileQuery.addEventListener("change", handleViewportChange);
     return () => mobileQuery.removeEventListener("change", handleViewportChange);
-  }, [mobileTab]);
+  }, [mobileTab, user]);
 
   useEffect(() => {
     const reconnectCamera = () => {
-      if (document.visibilityState === "visible" && mobileTab === "capture" && window.matchMedia("(max-width: 760px)").matches) startCamera();
+      if (user && document.visibilityState === "visible" && mobileTab === "capture" && window.matchMedia("(max-width: 760px)").matches) void startCamera();
     };
     document.addEventListener("visibilitychange", reconnectCamera);
     return () => document.removeEventListener("visibilitychange", reconnectCamera);
-  }, [mobileTab]);
+  }, [mobileTab, user]);
 
   async function startCamera() {
     if (!window.matchMedia("(max-width: 760px)").matches) return;
