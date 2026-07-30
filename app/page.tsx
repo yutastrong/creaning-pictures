@@ -346,8 +346,8 @@ export default function Home() {
       return;
     }
     const canvas = document.createElement("canvas");
-    canvas.width = 1200;
-    canvas.height = 900;
+    canvas.width = 1024;
+    canvas.height = 768;
     const sourceRatio = video.videoWidth / video.videoHeight;
     const targetRatio = 4 / 3;
     let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
@@ -359,7 +359,7 @@ export default function Home() {
       sy = (video.videoHeight - sh) / 2;
     }
     canvas.getContext("2d")?.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    setPendingPhoto(canvas.toDataURL("image/jpeg", 0.82));
+    setPendingPhoto(canvas.toDataURL("image/jpeg", 0.75));
   }
 
   async function refreshQueueStatus(userId: string) {
