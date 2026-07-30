@@ -90,3 +90,58 @@
 .login-panel{width:min(420px,100%);background:white;border:1px solid #dfe6ef;border-radius:22px;padding:32px;box-shadow:0 24px 70px #18365f1c}
 .login-brand{display:flex;align-items:center;gap:12px}.login-brand>span{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(145deg,#2585f5,#075bd4);color:white;font-size:22px}.login-brand small{color:var(--blue);font-weight:800;letter-spacing:.15em}.login-brand h1{font-size:22px;margin:2px 0 0}.login-panel>p{color:#647187;font-size:13px;margin:22px 0}.login-panel form{display:grid;gap:15px}.login-panel label{display:grid;gap:7px;font-size:12px;font-weight:700;color:#45536a}.login-panel input{height:48px;border:1px solid #d7dee8;border-radius:10px;padding:0 13px;font-size:15px}.login-panel form>button{height:50px;border:0;border-radius:11px;background:var(--blue);color:white;font-weight:800}.login-panel form>button:disabled{opacity:.65}.login-error{font-size:12px;color:#c43d3d;background:#fff0f0;border-radius:8px;padding:9px 10px}.login-help{display:block;margin-top:18px;color:#7b8798;text-align:center}.profile{width:100%;border:0;background:transparent;color:white;text-align:left}
 .reset-link{display:block;margin:12px auto 0;border:0;background:transparent;color:var(--blue);font-size:12px}
+
+/* Readability: keep the existing layout while making labels and actions easier to read. */
+@media(min-width:761px){
+  .sidebar nav button{font-size:15px}
+  .profile b{font-size:15px}
+  .profile small{font-size:13px}
+  .eyebrow{font-size:13px}
+  .refresh,.clear{font-size:15px}
+  .filters label,.sites>span{font-size:14px}
+  .filters select{font-size:15px}
+  .sites button{font-size:14px}
+  .result-bar p{font-size:15px}
+  .photo-card b{font-size:16px}
+  .photo-card span{font-size:14px}
+  .photo-card small{font-size:13px}
+  .photo-card footer{font-size:12px}
+  .start-selection,.selection-actions button{font-size:14px}
+  .modal dt{font-size:13px}
+  .modal dd{font-size:16px}
+  .status{font-size:13px}
+}
+
+@media(max-width:760px){
+  .mobile-header .eyebrow{font-size:10px}
+  .mobile-header h1{font-size:22px}
+  .avatar{font-size:15px}
+  .camera-message{font-size:13px}
+  .field-card>span,.memo-card>span{font-size:12px;font-weight:700}
+  .field-card select{font-size:16px}
+  .memo-card textarea{font-size:16px}
+  .memo-card b{font-size:12px}
+  .sync-status{font-size:12px}
+  .bottom-nav button{font-size:13px}
+  .mobile-summary b{font-size:18px}
+  .mobile-summary span{font-size:14px}
+  .mobile-gallery .photo-card b{font-size:15px}
+  .mobile-gallery .photo-card span{font-size:13px}
+  .mobile-gallery .photo-card small,.mobile-gallery .photo-card footer{font-size:11px}
+  .mobile-empty>b{font-size:16px}
+  .mobile-empty>small{font-size:13px}
+  .modal dt{font-size:12px}
+  .modal dd{font-size:15px}
+  .status{font-size:12px}
+  .review-panel header span{font-size:13px}
+  .review-panel h2{font-size:22px}
+  .review-actions button{font-size:16px}
+  .toast{font-size:14px}
+}
+
+.login-brand small{font-size:12px}
+.login-panel>p{font-size:15px;line-height:1.7}
+.login-panel label{font-size:14px}
+.login-panel input{font-size:16px}
+.login-panel form>button{font-size:16px}
+.login-error,.reset-link{font-size:14px}
