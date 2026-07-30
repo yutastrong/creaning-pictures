@@ -81,6 +81,7 @@ export default function Home() {
   const [cameraError, setCameraError] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
   const [capturedPhotos, setCapturedPhotos] = useState<PhotoItem[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(true);
   const [masterIds, setMasterIds] = useState<Record<string, { workId:string; sites:Record<string,string> }>>({});
   const [filters, setFilters] = useState({ work: "すべて", site: "すべて", member: "すべて" });
   const [selected, setSelected] = useState<PhotoItem | null>(null);
@@ -130,11 +131,25 @@ export default function Home() {
   }, []);
 
   async function loadSupabaseData(userId: string) {
+    setPhotosLoading(true);
+    let photoQuery = supabase
+      .from("photos")
+      .select("id, memo, image_path, captured_at, member_name, work_items(name), sites(name)")
+      .order("captured_at", { ascending:false });
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const startOfTomorrow = new Date(startOfToday);
+      startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+      photoQuery = photoQuery
+        .gte("captured_at", startOfToday.toISOString())
+        .lt("captured_at", startOfTomorrow.toISOString());
+    }
     const [{ data: profileRow }, { data: workRows }, { data: siteRows }, { data: photoRows }] = await Promise.all([
       supabase.from("profiles").select("display_name, role, is_active").eq("id", userId).single(),
       supabase.from("work_items").select("id, name, sort_order").order("sort_order"),
       supabase.from("sites").select("id, work_item_id, name, sort_order").eq("is_active", true).order("sort_order"),
-      supabase.from("photos").select("id, memo, image_path, captured_at, member_name, work_items(name), sites(name)").order("captured_at", { ascending:false }),
+      photoQuery,
     ]);
     if (profileRow) {
       if (!profileRow.is_active) {
@@ -163,8 +178,12 @@ export default function Home() {
       }
     }
     if (photoRows) {
-      const mapped = await Promise.all(photoRows.map(async row => {
-        const { data: signed } = await supabase.storage.from("field-photos").createSignedUrl(row.image_path, 3600);
+      const uniqueImagePaths = [...new Set(photoRows.map(row => row.image_path))];
+      const { data: signedImages } = uniqueImagePaths.length > 0
+        ? await supabase.storage.from("field-photos").createSignedUrls(uniqueImagePaths, 3600)
+        : { data: [] };
+      const signedUrlByPath = new Map((signedImages ?? []).map(image => [image.path, image.signedUrl]));
+      const mapped = photoRows.map(row => {
         const workRelation = row.work_items as unknown as { name:string } | null;
         const siteRelation = row.sites as unknown as { name:string } | null;
         return {
@@ -175,11 +194,12 @@ export default function Home() {
           time: formatLocalDateTime(new Date(row.captured_at)),
           memo: row.memo,
           comments: 0,
-          image: signed?.signedUrl ?? "",
+          image: signedUrlByPath.get(row.image_path) ?? "",
         } satisfies PhotoItem;
-      }));
+      });
       setCapturedPhotos(mapped);
     }
+    setPhotosLoading(false);
   }
 
   useEffect(() => {
@@ -615,7 +635,7 @@ export default function Home() {
           {(queueStatus.pending > 0 || queueStatus.sending > 0 || queueStatus.failed > 0 || syncNotice) && <div className={`sync-status ${queueStatus.pending > 0 || queueStatus.failed > 0 ? "waiting" : ""}`} role="status"><span>{queueStatus.sending > 0 ? `送信中 ${queueStatus.sending}件` : queueStatus.failed > 0 ? `送信できない写真 ${queueStatus.failed}件` : queueStatus.pending > 0 ? syncNotice || `未送信 ${queueStatus.pending}件` : syncNotice}</span>{queueStatus.failed > 0 && queueStatus.sending === 0 && <button type="button" onClick={retryFailedPhotos}>再送</button>}{(queueStatus.pending > 0 || queueStatus.failed > 0) && queueStatus.sending === 0 && <button type="button" onClick={discardQueuedPhotos}>削除</button>}</div>}
           <button className="capture-button" onClick={capture} disabled={!work || !site || savingLocally} aria-label="写真を撮影"><span>▣</span></button>
           {toast && <div className="toast" role="status">{toast}</div>}
-        </div> : <MobilePhotos photos={allPhotos} onSelect={setSelected}/>} 
+        </div> : <MobilePhotos photos={allPhotos} loading={photosLoading} onSelect={setSelected}/>}
       </main>
       <nav className="bottom-nav" aria-label="メインナビゲーション">
         <button className={mobileTab === "capture" ? "active" : ""} onClick={() => setMobileTab("capture")}><Icon>●</Icon>撮影</button>
@@ -987,13 +1007,13 @@ function CaptureReview({ image, onSave, onRetake }: { image:string, onSave:()=>v
 }
 
 function PhotoCard({ photo, onClick, selectionMode=false, selected=false }: { photo:PhotoItem, onClick:()=>void, selectionMode?:boolean, selected?:boolean }) {
-  return <button className={`photo-card ${selected ? "selected" : ""}`} onClick={onClick} aria-pressed={selectionMode ? selected : undefined}>{selectionMode && <span className="photo-check" aria-hidden="true">{selected ? "✓" : ""}</span>}<img src={photo.image} alt={`${photo.site}の${photo.work}`}/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
+  return <button className={`photo-card ${selected ? "selected" : ""}`} onClick={onClick} aria-pressed={selectionMode ? selected : undefined}>{selectionMode && <span className="photo-check" aria-hidden="true">{selected ? "✓" : ""}</span>}<img src={photo.image} alt={`${photo.site}の${photo.work}`} loading="lazy" decoding="async"/><div><b>{photo.site}</b><span>{photo.work}</span><small>{photo.member}</small><footer><time>{photo.time}</time>{photo.comments > 0 && <em>♡ {photo.comments}</em>}</footer></div></button>;
 }
 
-function MobilePhotos({ photos: photoItems, onSelect }: { photos:PhotoItem[], onSelect:(p:PhotoItem)=>void }) {
+function MobilePhotos({ photos: photoItems, loading, onSelect }: { photos:PhotoItem[], loading:boolean, onSelect:(p:PhotoItem)=>void }) {
   const today = formatLocalDateTime(new Date()).slice(0, 10);
   const todayPhotos = photoItems.filter(photo => photo.time.slice(0, 10) === today);
-  return <section className="mobile-gallery"><div className="mobile-summary"><b>今日の写真</b><span>{todayPhotos.length}件</span></div>{todayPhotos.map(p => <PhotoCard key={p.id} photo={p} onClick={() => onSelect(p)}/>)}{todayPhotos.length === 0 && <div className="mobile-empty"><span>▧</span><b>今日の写真はまだありません</b><small>撮影して保存すると、ここに表示されます</small></div>}</section>;
+  return <section className="mobile-gallery"><div className="mobile-summary"><b>今日の写真</b><span>{loading ? "読込中" : `${todayPhotos.length}件`}</span></div>{loading ? <><div className="mobile-photo-skeleton"/><div className="mobile-photo-skeleton"/></> : todayPhotos.map(p => <PhotoCard key={p.id} photo={p} onClick={() => onSelect(p)}/>)}{!loading && todayPhotos.length === 0 && <div className="mobile-empty"><span>▧</span><b>今日の写真はまだありません</b><small>撮影して保存すると、ここに表示されます</small></div>}</section>;
 }
 
 function PhotoModal({ photo, onClose }: { photo:PhotoItem, onClose:()=>void }) {

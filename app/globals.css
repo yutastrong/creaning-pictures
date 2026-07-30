@@ -37,6 +37,8 @@
   .sync-status{align-self:center;margin:6px auto 0;border-radius:20px;background:#e7f8f1;color:#087d56;padding:5px 10px;font-size:10px;font-weight:800;display:flex;align-items:center;gap:8px}
   .sync-status.waiting{background:#fff4dc;color:#9b6500}
   .sync-status button{border:0;border-left:1px solid currentColor;background:transparent;color:inherit;padding:1px 0 1px 8px;font:inherit;text-decoration:underline;cursor:pointer}
+  .mobile-photo-skeleton{min-height:210px;border-radius:12px;background:linear-gradient(100deg,#eef2f7 25%,#f8fafc 40%,#eef2f7 55%);background-size:240% 100%;animation:photo-skeleton 1.2s ease-in-out infinite}
+  @keyframes photo-skeleton{to{background-position-x:-200%}}
   .capture-button:active{transform:scale(.96)}
   .bottom-nav{height:62px}
   .bottom-nav .icon{font-size:18px}
